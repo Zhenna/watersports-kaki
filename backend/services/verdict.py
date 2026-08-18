@@ -1,6 +1,6 @@
 from typing import Literal, Optional
 
-Sport = Literal["windsurf", "wakesurf", "wakeboard", "sup", "kayak"]
+Sport = Literal["windsurf", "wakesurf", "wakeboard", "sup", "kayak", "diving"]
 Level = Literal["beginner", "intermediate", "advanced"]
 
 # Wind speed ranges (km/h) per sport per level
@@ -21,8 +21,11 @@ WIND_RANGES = {
         "intermediate": {"min": 0,  "max": 25},
         "advanced":     {"min": 0,  "max": 50},
     },
+    # Boat-dependent sports — wind affects surface conditions and boat ride out
+    # but not the underwater activity itself. Lightning is still a hard stop.
     "wakesurf":  {"beginner": None, "intermediate": None, "advanced": None},
     "wakeboard": {"beginner": None, "intermediate": None, "advanced": None},
+    "diving":    {"beginner": None, "intermediate": None, "advanced": None},
 }
 
 LIGHTNING_DANGER_KM = 10   # hard stop — get off water
@@ -60,11 +63,13 @@ def get_verdict(
 
     # Boat-towed sports are not wind-dependent
     if wind_range is None:
-        return {
-            "status": "good",
-            "label": "Good to go",
-            "reason": "Wind conditions don't affect boat-towed sports. Check for lightning and rain.",
-        }
+        reason = (
+            "Wind doesn't affect you underwater, but check surface conditions "
+            "and the boat ride out. Lightning is still a hard stop."
+            if sport == "diving"
+            else "Wind conditions don't affect boat-towed sports. Check for lightning and rain."
+        )
+        return {"status": "good", "label": "Good to go", "reason": reason}
 
     if wind_kmh < wind_range["min"]:
         return {

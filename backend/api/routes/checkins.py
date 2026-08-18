@@ -11,7 +11,11 @@ SPOTS_PLACEHOLDER = [
     {"id": "sembawang","name": "Sembawang Park",            "lat": 1.4558, "lng": 103.8228, "sports": ["sup","kayak","windsurf"]},
     {"id": "pasir-ris","name": "Pasir Ris Park",            "lat": 1.3814, "lng": 103.9474, "sports": ["sup","kayak"]},
     {"id": "marina",   "name": "Marina Barrage",            "lat": 1.2804, "lng": 103.8706, "sports": ["sup","kayak","windsurf"]},
-    {"id": "bedok-res","name": "Bedok Reservoir",           "lat": 1.3399, "lng": 103.9325, "sports": ["sup","kayak"]},
+    {"id": "bedok-res",  "name": "Bedok Reservoir",   "lat": 1.3399, "lng": 103.9325, "sports": ["sup","kayak"]},
+    {"id": "lazarus",    "name": "Lazarus Island",    "lat": 1.2264, "lng": 103.8611, "sports": ["diving","sup","kayak"]},
+    {"id": "sisters",    "name": "Sisters' Islands",  "lat": 1.2069, "lng": 103.8464, "sports": ["diving"]},
+    {"id": "hantu",      "name": "Pulau Hantu",       "lat": 1.2261, "lng": 103.7458, "sports": ["diving"]},
+    {"id": "stjohns",    "name": "St John's Island",  "lat": 1.2256, "lng": 103.8453, "sports": ["diving","sup","kayak"]},
 ]
 
 

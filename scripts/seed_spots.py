@@ -47,6 +47,38 @@ SPOTS = [
         "sports": ["sup", "kayak"],
         "nea_station_id": "S107",
     },
+    {
+        "name": "Lazarus Island",
+        "lat": 1.2264,
+        "lng": 103.8611,
+        "radius_metres": 400,
+        "sports": ["diving", "sup", "kayak"],
+        "nea_station_id": "S60",
+    },
+    {
+        "name": "Sisters' Islands",
+        "lat": 1.2069,
+        "lng": 103.8464,
+        "radius_metres": 400,
+        "sports": ["diving"],
+        "nea_station_id": "S60",
+    },
+    {
+        "name": "Pulau Hantu",
+        "lat": 1.2261,
+        "lng": 103.7458,
+        "radius_metres": 400,
+        "sports": ["diving"],
+        "nea_station_id": "S60",
+    },
+    {
+        "name": "St John's Island",
+        "lat": 1.2256,
+        "lng": 103.8453,
+        "radius_metres": 400,
+        "sports": ["diving", "sup", "kayak"],
+        "nea_station_id": "S60",
+    },
 ]
 
 if __name__ == "__main__":
