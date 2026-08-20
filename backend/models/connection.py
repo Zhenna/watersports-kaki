@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, String, DateTime, ForeignKey, UniqueConstraint, func
+from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from .base import Base
@@ -15,6 +15,9 @@ class Connection(Base):
     from_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     to_user_id   = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     status       = Column(String(20), nullable=False, default="pending")
+    # Avoid flags — either True = never place in same group, direction doesn't matter
+    from_avoided = Column(Boolean, nullable=False, default=False)
+    to_avoided   = Column(Boolean, nullable=False, default=False)
     created_at   = Column(DateTime(timezone=True), server_default=func.now())
     connected_at = Column(DateTime(timezone=True), nullable=True)
 
