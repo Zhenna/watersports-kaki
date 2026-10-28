@@ -82,5 +82,20 @@ SPOTS = [
 ]
 
 if __name__ == "__main__":
-    for s in SPOTS:
-        print(s)
+    from sqlalchemy import create_engine, select
+    from sqlalchemy.orm import Session
+    from core.config import settings
+    from models.spot import Spot
+
+    engine = create_engine(settings.DATABASE_URL)
+    with Session(engine) as session:
+        for s in SPOTS:
+            existing = session.scalar(select(Spot).where(Spot.name == s["name"]))
+            if existing:
+                for k, v in s.items():
+                    setattr(existing, k, v)
+                print(f"updated  {s['name']}")
+            else:
+                session.add(Spot(**s))
+                print(f"inserted {s['name']}")
+        session.commit()
