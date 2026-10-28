@@ -9,11 +9,15 @@ class Checkin(Base):
     __tablename__ = "checkins"
 
     id            = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id       = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    spot_id       = Column(UUID(as_uuid=True), ForeignKey("spots.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id       = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"),
+                           nullable=False, index=True)
+    spot_id       = Column(UUID(as_uuid=True), ForeignKey("spots.id", ondelete="CASCADE"),
+                           nullable=False, index=True)
     sport         = Column(String(30), nullable=False)
     gps_lat       = Column(Float, nullable=False)
     gps_lng       = Column(Float, nullable=False)
+    # self | community | partner
+    verification  = Column(String(20), nullable=False, default="self")
     checked_in_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
 
     user = relationship("User", back_populates="checkins")
