@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, String, Boolean, DateTime, Numeric, Text, func
+from sqlalchemy import Column, String, Boolean, DateTime, Numeric, Text, func, text
 from sqlalchemy.dialects.postgresql import UUID, ARRAY
 from sqlalchemy.orm import relationship
 from .base import Base
@@ -17,7 +17,8 @@ class Operator(Base):
     """
     __tablename__ = "operators"
 
-    id            = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id            = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4,
+                           server_default=text("gen_random_uuid()"))
     name          = Column(String(150), nullable=False)
     sports        = Column(ARRAY(String(30)), nullable=False, default=list)
     contact_name  = Column(String(100), nullable=True)
