@@ -1,22 +1,26 @@
 import uuid
 from datetime import date
-from sqlalchemy import Column, String, Boolean, Date, DateTime, Text, ARRAY, func
+from sqlalchemy import Column, String, Boolean, Date, DateTime, Text, ARRAY, Index, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from .base import Base
 
-SPORTS = ["windsurf", "sup", "kayak", "wakesurf", "wakeboard", "diving", "kitesurfing", "other"]
-LEVELS = ["beginner", "intermediate", "advanced"]
+SPORTS = ["windsurf", "sup", "kayak", "wakesurf", "wakeboard", "diving", "kitesurfing",
+          "foil", "other"]
+LEVELS = ["never_tried", "beginner", "intermediate", "advanced"]
 
 
 class User(Base):
     __tablename__ = "users"
 
     id               = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    phone            = Column(String(20), unique=True, nullable=False, index=True)
+    phone            = Column(String(20), unique=True, nullable=True, index=True)
+    email            = Column(String(200), nullable=True)
     display_name     = Column(String(50), nullable=False)
+    signup_source    = Column(String(30), nullable=True)
     date_of_birth    = Column(Date, nullable=True)
     gender           = Column(String(50), nullable=True)
+    # Legacy arrays: replaced by user_activity_profiles, dropped in the contract step.
     sports_doing     = Column(ARRAY(Text), nullable=False, default=[])
     sports_want_try  = Column(ARRAY(Text), nullable=False, default=[])
     levels           = Column(ARRAY(Text), nullable=False, default=[])
@@ -34,6 +38,8 @@ class User(Base):
     session_members  = relationship("SessionMember", back_populates="user", lazy="dynamic")
     water_profile    = relationship("WaterProfile", back_populates="user", uselist=False)
     milestones       = relationship("Milestone", back_populates="user", lazy="dynamic")
+    activity_profiles = relationship("UserActivityProfile", back_populates="user",
+                                     lazy="dynamic")
 
     @property
     def age(self) -> int | None:
@@ -47,3 +53,6 @@ class User(Base):
 
     def __repr__(self):
         return f"<User {self.display_name}>"
+
+
+Index("uq_users_email_lower", func.lower(User.email), unique=True)

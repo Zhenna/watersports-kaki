@@ -13,10 +13,12 @@ class Spot(Base):
     lat            = Column(Float, nullable=False)
     lng            = Column(Float, nullable=False)
     radius_metres  = Column(Integer, nullable=False, default=300)
+    # Legacy array: replaced by spot_activities, dropped in the contract step.
     sports         = Column(ARRAY(Text), nullable=False, default=[])
     nea_station_id = Column(String(20), nullable=True)
 
-    checkins = relationship("Checkin", back_populates="spot", lazy="dynamic")
+    checkins   = relationship("Checkin", back_populates="spot", lazy="dynamic")
+    activities = relationship("Activity", secondary="spot_activities", lazy="selectin")
 
     def __repr__(self):
         return f"<Spot {self.name}>"

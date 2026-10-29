@@ -3,6 +3,8 @@ from .user import User, SPORTS, LEVELS
 from .spot import Spot
 from .checkin import Checkin
 from .intent import Intent
+from .activity import Activity, UserActivityProfile
+from .condition import ActivityConditionRule, ConditionObservation
 from .operator import Operator
 from .session import ActivitySession, SessionMember
 from .water_profile import WaterProfile, Milestone
@@ -14,6 +16,8 @@ __all__ = [
     "Spot",
     "Checkin",
     "Intent",
+    "Activity", "UserActivityProfile",
+    "ActivityConditionRule", "ConditionObservation",
     "Operator",
     "ActivitySession", "SessionMember",
     "WaterProfile", "Milestone",

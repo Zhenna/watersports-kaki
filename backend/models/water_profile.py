@@ -57,6 +57,8 @@ class Milestone(Base):
     milestone_type   = Column(String(50), nullable=False)
     milestone_label  = Column(String(100), nullable=True)  # human-readable, e.g. "10 Days on the Water"
     sport            = Column(String(30), nullable=True)    # set for sport_unlocked milestones
+    activity_id      = Column(UUID(as_uuid=True), ForeignKey("activities.id",
+                              ondelete="RESTRICT"), nullable=True, index=True)
     asset_url        = Column(Text, nullable=True)          # Supabase Storage URL for shareable image
     triggered_at     = Column(DateTime(timezone=True), server_default=func.now())
     shared_at        = Column(DateTime(timezone=True), nullable=True)

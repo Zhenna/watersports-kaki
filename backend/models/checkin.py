@@ -14,6 +14,8 @@ class Checkin(Base):
     spot_id       = Column(UUID(as_uuid=True), ForeignKey("spots.id", ondelete="CASCADE"),
                            nullable=False, index=True)
     sport         = Column(String(30), nullable=False)
+    activity_id   = Column(UUID(as_uuid=True), ForeignKey("activities.id", ondelete="RESTRICT"),
+                           nullable=True, index=True)
     gps_lat       = Column(Float, nullable=False)
     gps_lng       = Column(Float, nullable=False)
     # self | community | partner

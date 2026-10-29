@@ -31,6 +31,7 @@ class Operator(Base):
     created_at    = Column(DateTime(timezone=True), server_default=func.now())
 
     sessions = relationship("ActivitySession", back_populates="operator", lazy="dynamic")
+    activities = relationship("Activity", secondary="operator_activities", lazy="selectin")
 
     def __repr__(self):
         return f"<Operator {self.name}>"
