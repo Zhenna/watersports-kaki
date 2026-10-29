@@ -18,6 +18,8 @@ class User(Base):
     email            = Column(String(200), nullable=True)
     display_name     = Column(String(50), nullable=False)
     signup_source    = Column(String(30), nullable=True)
+    acquisition_product = Column(String(30), nullable=True)
+    auth_user_id     = Column(UUID(as_uuid=True), unique=True, nullable=True)
     date_of_birth    = Column(Date, nullable=True)
     gender           = Column(String(50), nullable=True)
     # Legacy arrays: replaced by user_activity_profiles, dropped in the contract step.
@@ -40,6 +42,8 @@ class User(Base):
     milestones       = relationship("Milestone", back_populates="user", lazy="dynamic")
     activity_profiles = relationship("UserActivityProfile", back_populates="user",
                                      lazy="dynamic")
+    availability     = relationship("UserAvailability", back_populates="user",
+                                    lazy="dynamic")
 
     @property
     def age(self) -> int | None:

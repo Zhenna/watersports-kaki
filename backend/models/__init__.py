@@ -5,6 +5,7 @@ from .checkin import Checkin
 from .intent import Intent
 from .activity import Activity, UserActivityProfile
 from .condition import ActivityConditionRule, ConditionObservation
+from .availability import UserAvailability
 from .operator import Operator
 from .session import ActivitySession, SessionMember
 from .water_profile import WaterProfile, Milestone
@@ -18,6 +19,7 @@ __all__ = [
     "Intent",
     "Activity", "UserActivityProfile",
     "ActivityConditionRule", "ConditionObservation",
+    "UserAvailability",
     "Operator",
     "ActivitySession", "SessionMember",
     "WaterProfile", "Milestone",
