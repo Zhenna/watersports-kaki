@@ -4,7 +4,8 @@ from .spot import Spot
 from .checkin import Checkin
 from .intent import Intent
 from .activity import Activity, UserActivityProfile
-from .condition import ActivityConditionRule, ConditionObservation
+from .condition import (ActivityConditionRule, ConditionObservation, SpotWindSector,
+                        WeatherStation, ConditionForecast, FeedFetchLog)
 from .availability import UserAvailability
 from .operator import Operator
 from .session import ActivitySession, SessionMember
@@ -18,7 +19,8 @@ __all__ = [
     "Checkin",
     "Intent",
     "Activity", "UserActivityProfile",
-    "ActivityConditionRule", "ConditionObservation",
+    "ActivityConditionRule", "ConditionObservation", "SpotWindSector",
+    "WeatherStation", "ConditionForecast", "FeedFetchLog",
     "UserAvailability",
     "Operator",
     "ActivitySession", "SessionMember",
