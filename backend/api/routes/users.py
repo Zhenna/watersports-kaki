@@ -1,3 +1,4 @@
+from fastapi import APIRouter
 from pydantic import BaseModel, field_validator
 from typing import Optional
 from datetime import date, datetime
@@ -86,3 +87,7 @@ class ContactShareRequest(BaseModel):
     share_whatsapp: bool = False
     share_instagram: bool = False
     share_email: bool = False
+
+
+# No user endpoints yet. This empty router keeps main.py importable until they exist.
+router = APIRouter()

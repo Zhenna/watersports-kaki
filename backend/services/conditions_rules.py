@@ -220,20 +220,21 @@ def evaluate(
         elif rule is not None:
             lo, hi = rule.min_value, rule.max_value
             w = obs.wind_kmh
+            w_txt = f"{w:.1f} km/h ({kmh_to_knots(w):.1f} knots)"
             rng = f"{lo:g} to {hi:g} km/h" if lo is not None and hi is not None else "no stated range"
             if hi is not None and w > hi:
                 outside_note = (
-                    f"Wind is {w:.0f} km/h, above the WSK reference range of {rng} for "
+                    f"Wind is {w_txt}, above the WSK reference range of {rng} for "
                     f"{level.replace('_', ' ')} {activity_slug}."
                 )
             elif lo is not None and w < lo:
                 outside_note = (
-                    f"Wind is {w:.0f} km/h, below the WSK reference range of {rng} for "
+                    f"Wind is {w_txt}, below the WSK reference range of {rng} for "
                     f"{level.replace('_', ' ')} {activity_slug}."
                 )
             else:
                 within_note = (
-                    f"Wind is {w:.0f} km/h, within the WSK reference range of {rng} for "
+                    f"Wind is {w_txt}, within the WSK reference range of {rng} for "
                     f"{level.replace('_', ' ')} {activity_slug}."
                 )
 

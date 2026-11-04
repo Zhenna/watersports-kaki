@@ -166,6 +166,12 @@ class TestDirectionAndGusts(unittest.TestCase):
         self.assertTrue(any(f.code == "gusts_not_available" for f in a.flags))
 
 
+class TestWindText(unittest.TestCase):
+    def test_summary_keeps_one_decimal_and_shows_knots(self):
+        a = evaluate("windsurf", "beginner", obs(wind=1.5), RULES, sectors=SECTORS)
+        self.assertIn("1.5 km/h (0.8 knots)", a.summary)
+
+
 class TestReviewAndWording(unittest.TestCase):
     def test_unreviewed_rules_are_labelled(self):
         a = evaluate("sup", "beginner", obs(wind=8), RULES)

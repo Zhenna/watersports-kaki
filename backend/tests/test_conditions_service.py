@@ -126,3 +126,100 @@ class TestBuildObservationWithEngine(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestPayload(unittest.TestCase):
+    SPOT = {"slug": "east-coast", "name": "East Coast", "lat": SPOT[0], "lng": SPOT[1]}
+
+    def payload(self, rules, publish, lightning=None, wind=None):
+        from services.conditions_service import build_payload
+        wind = wind if wind is not None else wind_feed(iso(3))
+        lightning = lightning if lightning is not None else lightning_feed()
+        obs, meta = build_observation(wind, dir_feed(), lightning, *SPOT, now=NOW)
+        a = evaluate("windsurf", "beginner", obs, rules)
+        return build_payload(self.SPOT, "windsurf", "beginner", obs, meta, a, publish, now=NOW)
+
+    def test_reviewed_guidance_is_published(self):
+        p = self.payload(RULES, publish=True)
+        self.assertEqual(p["guidance"]["status"], STATUS_WITHIN)
+        self.assertEqual(p["observations"]["wind"]["knots"], 6.5)
+        self.assertIn("NEA", p["sources"][0])
+        self.assertIn("not safety advice", p["disclaimer"])
+
+    def test_unreviewed_guidance_is_hidden_but_facts_remain(self):
+        unreviewed = [Rule("windsurf", "beginner", "wind_speed_kmh", 8, 20, "draft-1")]
+        strikes = [{"lat": SPOT[0], "lng": SPOT[1]}]
+        p = self.payload(unreviewed, publish=False, lightning=lightning_feed(strikes))
+        self.assertEqual(p["guidance"]["status"], "not_published")
+        self.assertIn("awaiting instructor review", p["guidance"]["summary"])
+        codes = [f["code"] for f in p["guidance"]["flags"]]
+        self.assertIn("lightning_observed", codes)
+        self.assertNotIn("rules_unreviewed", codes)
+        self.assertEqual(p["guidance"]["review_status"], "unreviewed")
+        self.assertIsNotNone(p["observations"]["wind"])
+
+    def test_unavailable_feeds_give_none_observations(self):
+        from services.conditions_service import build_payload
+        obs, meta = build_observation(None, None, None, *SPOT, now=NOW)
+        a = evaluate("windsurf", "beginner", obs, RULES)
+        p = build_payload(self.SPOT, "windsurf", "beginner", obs, meta, a, True, now=NOW)
+        self.assertIsNone(p["observations"]["wind"])
+        self.assertIsNone(p["observations"]["lightning"])
+        self.assertEqual(p["guidance"]["status"], STATUS_UNAVAILABLE)
+
+    def test_payload_is_json_serialisable(self):
+        import json
+        json.dumps(self.payload(RULES, publish=True))
+
+
+class TestMappedStationAndPayload(unittest.TestCase):
+    def readings(self):
+        return [
+            {"station_id": "S_NEAR", "station_name": "Near", "value_kmh": 12, "lat": 1.3025, "lng": 103.9135},
+            {"station_id": "S_MAPPED", "station_name": "Mapped", "value_kmh": 9, "lat": 1.32, "lng": 103.93},
+        ]
+
+    def test_mapped_station_wins_over_nearest(self):
+        s = nearest_station(self.readings(), *SPOT, "value_kmh", preferred_id="S_MAPPED")
+        self.assertEqual(s["station_id"], "S_MAPPED")
+        self.assertEqual(s["selection"], "mapped")
+
+    def test_unknown_mapped_station_falls_back_to_nearest(self):
+        s = nearest_station(self.readings(), *SPOT, "value_kmh", preferred_id="S_MISSING")
+        self.assertEqual(s["station_id"], "S_NEAR")
+        self.assertEqual(s["selection"], "nearest")
+
+    def test_mapped_station_with_invalid_value_is_not_used(self):
+        r = self.readings()
+        r[1]["value_kmh"] = float("nan")
+        s = nearest_station(r, *SPOT, "value_kmh", preferred_id="S_MAPPED")
+        self.assertEqual(s["station_id"], "S_NEAR")
+
+    def test_payload_times_are_singapore_time(self):
+        from services.conditions_service import build_payload
+        wind = wind_feed(iso(3))
+        obs, meta = build_observation(wind, dir_feed(), lightning_feed(), *SPOT, now=NOW)
+        a = evaluate("windsurf", "beginner", obs, RULES)
+        p = build_payload({"slug": "x"}, "windsurf", "beginner", obs, meta, a, True,
+                          now=NOW.astimezone(timezone.utc))
+        self.assertTrue(p["generated_at"].endswith("+08:00"))
+        self.assertTrue(p["observations"]["wind"]["observed_at"].endswith("+08:00"))
+        self.assertTrue(p["observations"]["lightning"]["fetched_at"].endswith("+08:00"))
+
+    def test_proxy_note_for_distant_station_only(self):
+        from services.conditions_service import build_payload
+        far_wind = {"timestamp": iso(3), "readings": [
+            {"station_id": "S_FAR", "station_name": "Far Road", "value_kmh": 10, "lat": 1.35, "lng": 103.95}]}
+        obs, meta = build_observation(far_wind, dir_feed(), lightning_feed(), *SPOT, now=NOW)
+        a = evaluate("windsurf", "beginner", obs, RULES)
+        p = build_payload({"slug": "x"}, "windsurf", "beginner", obs, meta, a, True, now=NOW)
+        note = p["observations"]["wind"]["note"]
+        self.assertIn("Far Road", note)
+        self.assertIn("nearest station", note)
+
+        close_wind = {"timestamp": iso(3), "readings": [
+            {"station_id": "S_ON", "station_name": "On Site", "value_kmh": 10, "lat": SPOT[0], "lng": SPOT[1]}]}
+        obs, meta = build_observation(close_wind, dir_feed(), lightning_feed(), *SPOT, now=NOW)
+        a = evaluate("windsurf", "beginner", obs, RULES)
+        p = build_payload({"slug": "x"}, "windsurf", "beginner", obs, meta, a, True, now=NOW)
+        self.assertIsNone(p["observations"]["wind"]["note"])
