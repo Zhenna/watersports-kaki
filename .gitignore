@@ -215,6 +215,10 @@ marimo/_lsp/
 __marimo__/
 
 # Streamlit
-.streamlit/secrets.tomldocs/
+.streamlit/secrets.toml
 
 docs/*
+# env backups and variants
+.env.*
+!.env.example
+*.bak
