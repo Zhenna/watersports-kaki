@@ -6,7 +6,7 @@ Plain HTML, CSS and JavaScript. No build step, no dependencies.
 
 1. Start the API from `backend/`. Set `WSK_SHOW_PRIVATE_SPOTS=1` while spots are not public, or the
    location list will be empty.
-2. From this folder: `python3 -m http.server 5173`
+2. From this folder: `python3 serve.py` (a development server that turns caching off, so you always see the latest files)
 3. Open http://localhost:5173
 
 The page must be served over http, not opened as a file, because it uses ES modules.
