@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="robots" content="noindex">
 <meta name="theme-color" content="#0D2C5B">
-<title>Check conditions | WaterSports Kaki</title>
+<title>Make the most of the water | WaterSports Kaki</title>
 <link rel="icon" type="image/png" href="favicon.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -19,26 +19,39 @@
   <div class="brand">WaterSports Kaki</div>
 </header>
 <main>
-  <h1>Check conditions</h1>
-  <div class="controls">
-    <div class="field"><label for="sport">Sport</label><select id="sport"></select></div>
-    <div class="field"><label for="spot">Location</label><select id="spot"></select></div>
-    <div class="field"><label for="level">Skill level</label><select id="level"></select></div>
-    <button id="refresh" type="button">Refresh</button>
+  <section class="hero">
+    <p class="eyebrow">Your next Water Day</p>
+    <h1>Make the most of the water.</h1>
+    <p class="lede">Check the conditions. Find your people. Make a plan.</p>
+  </section>
+
+  <section class="panel">
+    <h2 class="panel-title">Your activity</h2>
+    <div class="controls">
+      <div class="field"><label for="sport">Sport</label><select id="sport"></select></div>
+      <div class="field"><label for="spot">Location</label><select id="spot"></select></div>
+      <div class="field"><label for="level">Skill level</label><select id="level"></select></div>
+    </div>
+  </section>
+
+  <div class="section-head">
+    <h2 id="context" class="section-title">Conditions</h2>
+    <p class="live-tag">Right now &middot; live NEA data</p>
   </div>
-  <p id="context" class="context"></p>
-  <p id="updated" class="muted" aria-live="polite"></p>
+  <p class="updated-row">
+    <span id="updated" class="muted" aria-live="polite"></span>
+    <button id="refresh" class="link-btn" type="button" aria-label="Refresh conditions">&#8635; Refresh</button>
+  </p>
   <div id="banner" role="status" aria-live="polite" hidden></div>
   <noscript><p class="banner error">This page needs JavaScript. Check official advisories at weather.gov.sg.</p></noscript>
-  <section id="alert" hidden></section>
-  <section id="guidance" class="card"></section>
-  <details id="details" class="card" hidden>
-    <summary>Weather details, observed now</summary>
-    <div id="wind" class="block"></div>
-    <div id="lightning" class="block"></div>
-  </details>
-  <section id="interest" class="card"></section>
-  <section id="about" class="card plain"></section>
+
+  <div class="grid">
+    <section id="guidance" class="card"></section>
+    <section id="lightning" class="card"></section>
+  </div>
+
+  <section id="plan" class="card"></section>
+  <section id="about" class="plain"></section>
 </main>
 <script type="module" src="app.js"></script>
 </body>

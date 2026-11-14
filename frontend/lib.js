@@ -13,6 +13,7 @@ export const STATUS_LABELS = {
   unavailable: "Assessment unavailable",
   outside_reference_range: "Outside WSK reference range",
   within_reference_range: "Within WSK reference range",
+  inconclusive: "Inconclusive: nearby stations disagree",
   wind_not_applicable: "Wind limits not applicable",
   not_published: "Awaiting instructor review",
 };
@@ -39,6 +40,19 @@ export function degreesToCardinal(deg) {
   if (typeof deg !== "number" || !Number.isFinite(deg)) return null;
   const d = ((deg % 360) + 360) % 360;
   return CARDINALS[Math.round(d / 22.5) % 16];
+}
+
+// The standard Beaufort names, in whole knots. A plain description of the wind itself.
+const BEAUFORT = [[1, "Calm"], [4, "Light air"], [7, "Light breeze"], [11, "Gentle breeze"],
+                  [17, "Moderate breeze"], [22, "Fresh breeze"], [28, "Strong breeze"],
+                  [34, "Near gale"], [41, "Gale"], [48, "Strong gale"], [56, "Storm"],
+                  [64, "Violent storm"]];
+
+export function beaufortName(knots) {
+  if (typeof knots !== "number" || !Number.isFinite(knots) || knots < 0) return null;
+  const k = Math.round(knots);
+  for (const [limit, name] of BEAUFORT) if (k < limit) return name;
+  return "Hurricane force";
 }
 
 export function formatTimeSGT(iso) {
@@ -111,19 +125,23 @@ export function errorMessage(kind, status) {
   return "Couldn't reach the conditions service.";
 }
 
-// Shown elsewhere (the lightning alert, the "not assessed" list), so not repeated as flags.
+// Shown elsewhere (the lightning alert, the limits line), so not repeated as flags.
 const HIDDEN_FLAG_CODES = new Set([
   "lightning_observed", "no_strikes_observed",
   "gusts_not_available", "direction_not_assessed", "wind_direction_unavailable",
+  "rules_unreviewed",
 ]);
+
+const ASSESSED_STATUSES = new Set(["within", "outside", "inconclusive"]);
 
 export function pillLabel(g) {
   if (g.status === "not_published") return STATUS_LABELS.not_published;
+  const range = g.review_status === "unreviewed" ? "provisional range" : "WSK reference range";
   const partial = !(g.scope?.direction && g.scope?.gusts);
   switch (g.wind_status) {
-    case "within":
-      return partial ? "Wind speed only: within WSK reference range" : STATUS_LABELS.within_reference_range;
-    case "outside": return STATUS_LABELS.outside_reference_range;
+    case "within": return partial ? `Wind speed only: within ${range}` : `Within ${range}`;
+    case "outside": return `Outside ${range}`;
+    case "inconclusive": return STATUS_LABELS.inconclusive;
     case "not_applicable": return STATUS_LABELS.wind_not_applicable;
     case "unavailable": return STATUS_LABELS.unavailable;
     default: return STATUS_LABELS[g.status] ?? UNKNOWN_STATUS;  // older API responses
@@ -131,18 +149,23 @@ export function pillLabel(g) {
 }
 
 export function notAssessed(g) {
-  if (g.wind_status !== "within" && g.wind_status !== "outside") return [];
+  if (!ASSESSED_STATUSES.has(g.wind_status)) return [];
   const out = [];
-  if (!g.scope?.direction) out.push("wind direction relative to the shore");
   if (!g.scope?.gusts) out.push("gusts");
+  if (!g.scope?.direction) out.push("wind direction relative to the shore");
   return out;
+}
+
+function provisional(text, g) {
+  return g.review_status === "unreviewed" ? text.replace(/WSK reference range/g, "provisional reference range") : text;
 }
 
 function guidanceSummary(g) {
   if (g.status === "not_published") return g.summary || "Awaiting instructor review.";
   switch (g.wind_status) {
     case "within":
-    case "outside": return g.wind_summary || g.summary || "Assessment unavailable.";
+    case "outside":
+    case "inconclusive": return provisional(g.wind_summary || g.summary || "Assessment unavailable.", g);
     case "not_applicable": return "Wind limits are not part of this activity's assessment.";
     case "unavailable": {
       const why = (g.wind_reasons || []).join("; ");
@@ -173,13 +196,6 @@ export function buildAlert(li) {
   return null;
 }
 
-function stationText(s) {
-  if (!s) return null;
-  const dist = s.distance_km != null ? `, ${s.distance_km} km away` : "";
-  const how = s.selection === "mapped" ? "station mapped to this spot" : "nearest station reporting wind";
-  return `${s.station_name || s.station_id}${dist} (${how})`;
-}
-
 function withAge(prefix, iso, ageMin) {
   const t = formatTimeSGT(iso);
   const ago = agoText(ageMin);
@@ -187,8 +203,95 @@ function withAge(prefix, iso, ageMin) {
   return [t ? `${prefix} ${t} SGT` : prefix, ago].filter(Boolean).join(", ");
 }
 
-function titleCase(s) {
-  return String(s || "").replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
+const kn = (x) => Number(x).toFixed(1);
+
+function stationLine(r) {
+  const name = r.station_name || r.station_id || "Station";
+  const dist = r.distance_km != null ? `, ${r.distance_km} km away` : "";
+  const mapped = r.selection === "mapped" ? ", mapped to this spot" : "";
+  return `${name}${dist}: ${kn(r.knots)} kn (${kn(r.kmh)} km/h)${mapped}`;
+}
+
+function windHeadline(wind) {
+  const lo = beaufortName(wind.knots_min ?? wind.knots);
+  const hi = beaufortName(wind.knots_max ?? wind.knots);
+  if (!lo) return null;
+  return lo === hi ? lo : `${lo} to ${hi.toLowerCase()}`;
+}
+
+function limitationsText(p, g) {
+  const parts = [];
+  const rs = p?.observations?.wind?.readings || [];
+  const ds = rs.map((r) => r.distance_km).filter((d) => d != null);
+  if (rs.length === 1) {
+    parts.push(ds.length ? `Based on wind readings from a station ${ds[0]} km away.`
+                         : "Based on wind readings from a nearby station.");
+  } else if (rs.length > 1) {
+    parts.push(ds.length
+      ? `Based on wind readings from ${rs.length} nearby stations, ${Math.min(...ds)} to ${Math.max(...ds)} km away.`
+      : `Based on wind readings from ${rs.length} nearby stations.`);
+  }
+  const na = notAssessed(g);
+  if (na.length) {
+    const list = na.join(" and ");
+    parts.push(`${list.charAt(0).toUpperCase()}${list.slice(1)} ${na.length === 1 ? "is" : "are"} not assessed.`);
+  }
+  if (g.review_status === "unreviewed" && g.status !== "not_published") parts.push("Reference ranges are provisional.");
+  return parts.length ? parts.join(" ") : null;
+}
+
+// ---------- planner: upcoming weekend days and AM or PM ----------
+const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+// AM and PM only, so a small number of people are not spread across many time cells.
+export const SLOTS = [{ key: "AM", sub: "Morning" }, { key: "PM", sub: "Afternoon" }];
+
+// The next weekend days after today, by the Singapore calendar date.
+export function upcomingWeekendDays(now = new Date(), count = 4) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Singapore", year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(now);
+  const get = (t) => Number(parts.find((p) => p.type === t).value);
+  const y = get("year"), m = get("month"), d = get("day");
+  const out = [];
+  for (let i = 1; out.length < count && i <= 30; i++) {
+    const dt = new Date(Date.UTC(y, m - 1, d + i));
+    const wd = dt.getUTCDay();
+    if (wd === 6 || wd === 0) {
+      out.push({
+        iso: dt.toISOString().slice(0, 10),
+        short: DAY_NAMES[wd],
+        label: `${DAY_NAMES[wd]}, ${dt.getUTCDate()} ${MONTH_NAMES[dt.getUTCMonth()]}`,
+      });
+    }
+  }
+  return out;
+}
+
+export function planSummary(day, slotKey) {
+  return day ? `${day.label} \u00b7 ${slotKey}` : "";
+}
+
+// The early-access form lists availability as "Sat AM", "Sat PM", "Sun AM", "Sun PM".
+export function formHint(day, slotKey) {
+  return day ? `In the form, tick ${day.short} ${slotKey}.` : "";
+}
+
+function lightningCard(li) {
+  const a = buildAlert(li);
+  if (a && a.kind === "lightning") {
+    return { kind: "alert", pill: a.title, text: a.text, checked: withAge("Checked", li.fetched_at, li.age_min) };
+  }
+  if (a) return { kind: "unavailable", pill: a.title, text: a.text, checked: null };
+  const near = li.nearest_km != null ? ` Nearest strike observed: ${li.nearest_km} km away.` : "";
+  return {
+    kind: "quiet",
+    pill: "No strikes observed nearby",
+    text: `No strikes observed within ${li.radius_km} km in the last ${li.lookback_min} minutes. ` +
+          `This is not an all-clear. Data may be delayed.${near}`,
+    checked: withAge("Checked", li.fetched_at, li.age_min),
+  };
 }
 
 // Turn the API payload into plain strings and flags for the page to display.
@@ -199,52 +302,41 @@ export function buildView(p) {
 
   let windView = null;
   if (wind) {
+    const readings = wind.readings?.length
+      ? wind.readings
+      : [{ station_name: wind.station?.station_name, distance_km: wind.station?.distance_km,
+           selection: wind.station?.selection, kmh: wind.kmh, knots: wind.knots }];
+    const multi = readings.length > 1;
     const card = degreesToCardinal(wind.from_deg);
+    const ds = readings.map((r) => r.distance_km).filter((d) => d != null);
     windView = {
-      knots: `${Number(wind.knots).toFixed(1)} kn`,
-      kmh: `${Number(wind.kmh).toFixed(1)} km/h`,
-      direction: card ? `from ${card} (${Math.round(wind.from_deg)}°)` : "Direction unavailable",
-      station: stationText(wind.station),
+      big: multi ? `${kn(wind.knots_min)} to ${kn(wind.knots_max)} kn` : `${kn(wind.knots)} kn`,
+      sub: multi ? `${kn(wind.kmh_min)} to ${kn(wind.kmh_max)} km/h` : `${kn(wind.kmh)} km/h`,
+      directionShort: card ? `From ${card} \u00b7 ${Math.round(wind.from_deg)}\u00b0` : "Direction unavailable",
+      source: multi ? `${readings.length} nearby stations` : (readings[0].station_name || "Nearby station"),
+      sourceSub: ds.length
+        ? (multi ? `${Math.min(...ds)} to ${Math.max(...ds)} km from spot` : `${ds[0]} km from spot`)
+        : "Distance unknown",
+      stations: readings.map(stationLine),
       observed: withAge("Observed", wind.observed_at, wind.age_min),
       stale: wind.stale !== false,  // anything but an explicit false is treated as stale
       note: wind.note || null,
     };
   }
 
-  let lightningView = null;
-  if (li) {
-    const n = li.strikes_within_radius ?? 0;
-    const near = li.nearest_km != null ? ` Nearest strike observed: ${li.nearest_km} km away.` : "";
-    lightningView = {
-      headline: n > 0
-        ? "Lightning detected nearby"
-        : `No strikes observed within ${li.radius_km} km in the last ${li.lookback_min} min`,
-      detail: n > 0
-        ? `${n} strike${n === 1 ? "" : "s"} within ${li.radius_km} km in the last ${li.lookback_min} minutes.${near}`
-        : `This is not an all-clear. Data may be delayed.${near}`,
-      checked: withAge("Checked", li.fetched_at, li.age_min),
-      stale: li.stale !== false,
-    };
-  }
-
   return {
     spotName: p?.spot?.name ?? "",
-    activityLabel: titleCase(p?.activity),
-    levelLabel: LEVEL_LABELS[p?.level] ?? titleCase(p?.level),
+    levelLabel: LEVEL_LABELS[p?.level] ?? String(p?.level || ""),
     updated: formatTimeSGT(p?.generated_at),
-    alert: buildAlert(li),
-    windLine: windView
-      ? `Wind now: ${windView.knots}, ${windView.direction.startsWith("from") ? windView.direction : "direction unavailable"}`
-      : null,
+    headline: wind ? windHeadline(wind) : null,
     wind: windView,
-    windMessage: windView ? null : "Wind data unavailable.",
-    lightning: lightningView,
-    lightningMessage: lightningView ? null : "Lightning data unavailable. Check official advisories.",
+    windMessage: windView ? null : (p?.observations?.wind_message || "Wind data unavailable."),
+    lightningCard: lightningCard(li),
     guidance: {
       status: g.status || "unavailable",
       statusLabel: pillLabel(g),
       summary: guidanceSummary(g),
-      notAssessed: notAssessed(g),
+      limitations: limitationsText(p, g),
       flags: (g.flags || [])
         .filter((f) => !HIDDEN_FLAG_CODES.has(f.code))
         .map((f) => ({

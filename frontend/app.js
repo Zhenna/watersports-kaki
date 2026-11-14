@@ -1,7 +1,8 @@
 import { CONFIG } from "./config.js";
 import {
-  LEVELS, LEVEL_LABELS, selectionFromQuery, pickOption, catalogActivitiesUrl, catalogSpotsUrl,
-  conditionsUrl, buildView, errorMessage, FAIL_CLOSED_NOTE,
+  LEVELS, LEVEL_LABELS, SLOTS, selectionFromQuery, pickOption, catalogActivitiesUrl,
+  catalogSpotsUrl, conditionsUrl, buildView, errorMessage, FAIL_CLOSED_NOTE,
+  upcomingWeekendDays, planSummary, formHint,
 } from "./lib.js";
 
 const $ = (id) => document.getElementById(id);
@@ -14,9 +15,13 @@ function el(tag, cls, text) {
   return e;
 }
 
-const state = { activities: [], spots: [], activity: null, spot: null, level: "beginner" };
+const state = {
+  activities: [], spots: [], activity: null, spot: null, level: "beginner",
+  plan: { days: [], dayIdx: 0, slot: "AM" },
+};
 let lastLoad = 0;
 let inflight = null;
+let lastCtx = null;
 
 // ---------- small helpers ----------
 async function getJson(url, timeoutMs = 25000) {
@@ -52,10 +57,9 @@ function updateUrl() {
 }
 
 function clearSections() {
-  for (const id of ["alert", "guidance", "wind", "lightning", "interest", "about"]) $(id).replaceChildren();
-  $("alert").hidden = true;
-  $("details").hidden = true;
-  $("context").textContent = "";
+  for (const id of ["guidance", "lightning", "plan", "about"]) $(id).replaceChildren();
+  $("lightning").className = "card";
+  $("context").textContent = "Conditions";
 }
 
 function showBanner(message, kind) {
@@ -82,39 +86,50 @@ function showError(message, withNote = true) {
   $("about").appendChild(el("p", "small", "WSK shows weather data for information only. It is not safety advice."));
 }
 
-// ---------- rendering ----------
-function renderAlert(v) {
-  const s = $("alert");
-  s.replaceChildren();
-  if (!v.alert) {
-    s.hidden = true;
-    return;
-  }
-  s.hidden = false;
-  s.className = `alert ${v.alert.kind}`;
-  s.appendChild(el("h2", null, v.alert.title));
-  s.appendChild(el("p", null, v.alert.text));
-  for (const a of v.advisories) {
-    const link = el("a", null, a.label);
-    link.href = a.url;
-    link.target = "_blank";
-    link.rel = "noopener";
-    const p = el("p", "small", "Official advisories: ");
-    p.appendChild(link);
-    s.appendChild(p);
-    break;
-  }
+function advisoryLink(v) {
+  const a = v.advisories[0];
+  if (!a) return null;
+  const link = el("a", null, a.label);
+  link.href = a.url;
+  link.target = "_blank";
+  link.rel = "noopener";
+  const p = el("p", "small", "Official advisories: ");
+  p.appendChild(link);
+  return p;
 }
 
-function renderGuidance(v, ctx) {
+// ---------- rendering ----------
+function renderSummary(v, ctx) {
   const s = $("guidance");
-  s.replaceChildren(el("h2", null, `${v.levelLabel} ${ctx.activityName.toLowerCase()}`));
+  s.replaceChildren();
+  const tagrow = el("div", "tagrow");
+  tagrow.appendChild(el("span", "chip-tag", "Conditions summary"));
+  tagrow.appendChild(el("span", "small", `${v.levelLabel} ${ctx.activityName.toLowerCase()}`));
+  s.appendChild(tagrow);
+
+  s.appendChild(el("p", "headline", v.headline || "Wind data unavailable"));
   s.appendChild(el("span", "pill", v.guidance.statusLabel));
-  if (v.windLine) s.appendChild(el("p", "windline", v.windLine));
   s.appendChild(el("p", "summary", v.guidance.summary));
-  if (v.guidance.notAssessed.length) {
-    s.appendChild(el("p", "small", `Not assessed: ${v.guidance.notAssessed.join(", ")}.`));
+
+  if (v.wind) {
+    const m = el("div", "metrics");
+    const a = el("div");
+    a.appendChild(el("p", "label", "Reported wind"));
+    a.appendChild(el("p", "metric", v.wind.big));
+    a.appendChild(el("p", "small", v.wind.directionShort));
+    const b = el("div");
+    b.appendChild(el("p", "label", "Source"));
+    b.appendChild(el("p", "metric", v.wind.source));
+    b.appendChild(el("p", "small", v.wind.sourceSub));
+    m.appendChild(a);
+    m.appendChild(b);
+    s.appendChild(m);
+  } else {
+    s.appendChild(el("p", "muted", v.windMessage));
   }
+
+  if (v.guidance.limitations) s.appendChild(el("p", "limits", `Limits: ${v.guidance.limitations}`));
+
   if (v.guidance.flags.length) {
     const ul = el("ul", "flags");
     for (const f of v.guidance.flags) {
@@ -125,83 +140,110 @@ function renderGuidance(v, ctx) {
     }
     s.appendChild(ul);
   }
-}
 
-function renderWind(v) {
-  const s = $("wind");
-  s.replaceChildren(el("h3", null, "Wind"));
-  if (!v.wind) {
-    s.appendChild(el("p", "muted", v.windMessage));
-    return;
+  if (v.wind) {
+    const d = el("details");
+    d.appendChild(el("summary", null, "View observation details"));
+    const block = el("div", "block");
+    block.appendChild(el("p", "strong", `${v.wind.big}, ${v.wind.sub}`));
+    block.appendChild(el("p", null, v.wind.directionShort));
+    const ul = el("ul", "stations");
+    for (const line of v.wind.stations) ul.appendChild(el("li", "small", line));
+    block.appendChild(ul);
+    if (v.wind.observed) {
+      const p = el("p", "small", v.wind.observed);
+      if (v.wind.stale) p.appendChild(el("span", "tag", "Out of date"));
+      block.appendChild(p);
+    }
+    if (v.wind.note) block.appendChild(el("p", "small note", v.wind.note));
+    d.appendChild(block);
+    s.appendChild(d);
   }
-  const row = el("div", "big-row");
-  row.appendChild(el("span", "big", v.wind.knots));
-  row.appendChild(el("span", "muted", v.wind.kmh));
-  s.appendChild(row);
-  s.appendChild(el("p", null, v.wind.direction));
-  if (v.wind.station) s.appendChild(el("p", "small", v.wind.station));
-  if (v.wind.observed) {
-    const p = el("p", "small", v.wind.observed);
-    if (v.wind.stale) p.appendChild(el("span", "tag", "Out of date"));
-    s.appendChild(p);
-  }
-  if (v.wind.note) s.appendChild(el("p", "small note", v.wind.note));
 }
 
 function renderLightning(v) {
   const s = $("lightning");
-  s.replaceChildren(el("h3", null, "Lightning observations"));
-  if (!v.lightning) {
-    s.appendChild(el("p", "muted", v.lightningMessage));
-    return;
-  }
-  s.appendChild(el("p", "strong", v.lightning.headline));
-  s.appendChild(el("p", null, v.lightning.detail));
-  if (v.lightning.checked) {
-    const p = el("p", "small", v.lightning.checked);
-    if (v.lightning.stale) p.appendChild(el("span", "tag", "Out of date"));
-    s.appendChild(p);
+  const c = v.lightningCard;
+  s.replaceChildren();
+  s.className = c.kind === "alert" ? "card alert" : c.kind === "unavailable" ? "card unavailable" : "card";
+
+  const head = el("div", "lightning-head");
+  head.appendChild(el("h2", null, "Lightning activity"));
+  head.appendChild(el("span", "lightning-pill", c.pill));
+  s.appendChild(head);
+  s.appendChild(el("p", c.kind === "alert" ? "strong summary" : "summary", c.text));
+  if (c.checked) s.appendChild(el("p", "small", c.checked));
+  if (c.kind !== "quiet") {
+    const link = advisoryLink(v);
+    if (link) s.appendChild(link);
+  } else {
+    s.appendChild(el("p", "advice-note",
+      "Follow official warnings and venue instructions. A lightning-free reading does not mean it is safe to go out."));
   }
 }
 
-function renderInterest() {
-  const s = $("interest");
-  s.replaceChildren(el("h2", null, "Want company?"));
-  s.appendChild(el("p", null,
-    "Tell us when you would go, morning or afternoon, and we will email you when others match."));
-  const link = el("a", "cta", "Tell us when you would go");
+function renderPlan() {
+  const s = $("plan");
+  const ctx = lastCtx;
+  s.replaceChildren();
+  s.appendChild(el("h2", null, "Find your Kakis"));
+  s.appendChild(el("p", "plan-sub", "When would you like to get on the water?"));
+
+  const chips = el("div", "chips");
+  state.plan.days.forEach((d, i) => {
+    const b = el("button", i === state.plan.dayIdx ? "chip on" : "chip", d.label);
+    b.type = "button";
+    b.setAttribute("aria-pressed", String(i === state.plan.dayIdx));
+    b.addEventListener("click", () => { state.plan.dayIdx = i; renderPlan(); });
+    chips.appendChild(b);
+  });
+  s.appendChild(chips);
+
+  const slots = el("div", "slots");
+  for (const sl of SLOTS) {
+    const b = el("button", sl.key === state.plan.slot ? "slot on" : "slot");
+    b.type = "button";
+    b.setAttribute("aria-pressed", String(sl.key === state.plan.slot));
+    b.appendChild(el("span", "slot-name", sl.key));
+    b.appendChild(el("span", "slot-sub", sl.sub));
+    b.addEventListener("click", () => { state.plan.slot = sl.key; renderPlan(); });
+    slots.appendChild(b);
+  }
+  s.appendChild(slots);
+
+  const day = state.plan.days[state.plan.dayIdx];
+  const foot = el("div", "plan-foot");
+  const left = el("div");
+  left.appendChild(el("p", "summary-line", planSummary(day, state.plan.slot)));
+  left.appendChild(el("p", "small",
+    `Interest only. No booking or equipment reservation. ${formHint(day, state.plan.slot)}`));
+  foot.appendChild(left);
+  const link = el("a", "cta", "I'm interested \u2192");
   link.href = CONFIG.INTEREST_URL;
   link.target = "_blank";
   link.rel = "noopener";
-  s.appendChild(link);
+  foot.appendChild(link);
+  s.appendChild(foot);
+  if (ctx) s.appendChild(el("p", "small", `${ctx.activityName} at ${ctx.spotName}`));
 }
 
 function renderAbout(v) {
   const s = $("about");
   s.replaceChildren();
   if (v.sources.length) s.appendChild(el("p", "small", `Source: ${v.sources.join(", ")}`));
-  for (const a of v.advisories) {
-    const link = el("a", null, a.label);
-    link.href = a.url;
-    link.target = "_blank";
-    link.rel = "noopener";
-    const p = el("p", "small", "Official advisories: ");
-    p.appendChild(link);
-    s.appendChild(p);
-  }
   s.appendChild(el("p", "small", v.disclaimer));
 }
 
 function render(v, ctx) {
   hideBanner();
-  $("context").textContent = `${ctx.activityName} at ${ctx.spotName}`;
+  lastCtx = ctx;
+  $("context").textContent = `Conditions at ${ctx.spotName}`;
   $("updated").textContent = v.updated ? `Updated ${v.updated} SGT` : "";
-  renderAlert(v);
-  renderGuidance(v, ctx);
-  renderWind(v);
+  state.plan.days = upcomingWeekendDays();
+  if (state.plan.dayIdx >= state.plan.days.length) state.plan.dayIdx = 0;
+  renderSummary(v, ctx);
   renderLightning(v);
-  $("details").hidden = false;
-  renderInterest();
+  renderPlan();
   renderAbout(v);
 }
 
@@ -254,9 +296,7 @@ async function loadSpots(wantedSpot) {
 async function init() {
   const wanted = selectionFromQuery(location.search);
   state.level = wanted.level;
-
-  const level = $("level");
-  fillSelect(level, LEVELS.map((l) => ({ slug: l, name: LEVEL_LABELS[l] })), state.level);
+  fillSelect($("level"), LEVELS.map((l) => ({ slug: l, name: LEVEL_LABELS[l] })), state.level);
 
   const res = await getJson(catalogActivitiesUrl(CONFIG));
   if (!res.ok) {
