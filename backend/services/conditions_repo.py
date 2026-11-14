@@ -40,6 +40,7 @@ class SpotContext:
     rules: list
     sectors: list
     nea_station_id: Optional[str] = None
+    forecast_region: Optional[str] = None
 
 
 def load_context(slug: str, activity_slug: str, level: str, include_private: bool = False) -> SpotContext:
@@ -99,6 +100,7 @@ def load_context(slug: str, activity_slug: str, level: str, include_private: boo
             rules=rules,
             sectors=sectors,
             nea_station_id=spot.nea_station_id,
+            forecast_region=spot.forecast_region,
         )
 
 

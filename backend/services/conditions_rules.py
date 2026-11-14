@@ -113,6 +113,8 @@ class Assessment:
     wind_reasons: list = field(default_factory=list)
     # What this assessment actually covered.
     scope: dict = field(default_factory=dict)
+    # below | within | above | mixed, set only when wind was assessed
+    wind_position: Optional[str] = None
 
     def to_dict(self) -> dict:
         return {
@@ -128,6 +130,7 @@ class Assessment:
             "wind_summary": self.wind_summary,
             "wind_reasons": self.wind_reasons,
             "scope": self.scope,
+            "wind_position": self.wind_position,
         }
 
 
@@ -173,6 +176,9 @@ def evaluate(
     rules: list,
     wind_dependent: bool = True,
     sectors: Optional[list] = None,
+    include_lightning: bool = True,
+    reading_subject: str = "Nearby stations report",
+    reading_all: str = "all ",
 ) -> Assessment:
     sectors = sectors or []
     flags: list = []
@@ -185,6 +191,7 @@ def evaluate(
     direction_assessed = False
     gusts_assessed = False
     mixed_note: Optional[str] = None
+    wind_position: Optional[str] = None
     readings = (
         [r.kmh for r in obs.wind_readings if _valid(r.kmh)]
         if obs.wind_readings
@@ -203,7 +210,9 @@ def evaluate(
 
     # ---- lightning (always applies, any activity) ------------------------
     li = obs.lightning
-    if li is None:
+    if not include_lightning:
+        pass  # a forecast has no lightning observation to check
+    elif li is None:
         reasons.append("lightning data unavailable")
     elif not _valid(li.age_min) or li.age_min > LIGHTNING_STALE_MIN:
         reasons.append("lightning data is out of date")
@@ -260,20 +269,24 @@ def evaluate(
             multi = len(readings) > 1
             w_txt = _wind_text(min(readings), max(readings))
             rng = f"{lo:g} to {hi:g} km/h" if lo is not None and hi is not None else "no stated range"
-            subject = "Nearby stations report" if multi else "Wind is"
-            all_ = "all " if multi else ""
+            subject = reading_subject if multi else "Wind is"
+            all_ = reading_all if multi else ""
             lvl = f"{level.replace('_', ' ')} {activity_slug}"
             kinds = {
                 "above" if (hi is not None and r > hi) else "below" if (lo is not None and r < lo) else "within"
                 for r in readings
             }
             if kinds == {"above"}:
+                wind_position = "above"
                 outside_note = f"{subject} {w_txt}, {all_}above the WSK reference range of {rng} for {lvl}."
             elif kinds == {"below"}:
+                wind_position = "below"
                 outside_note = f"{subject} {w_txt}, {all_}below the WSK reference range of {rng} for {lvl}."
             elif kinds == {"within"}:
+                wind_position = "within"
                 within_note = f"{subject} {w_txt}, {all_}within the WSK reference range of {rng} for {lvl}."
             else:
+                wind_position = "mixed"
                 mixed_note = (
                     f"{subject} {w_txt}, which straddles the WSK reference range of {rng} for {lvl}, "
                     "so this assessment is inconclusive."
@@ -397,4 +410,5 @@ def evaluate(
             "direction": direction_assessed,
             "gusts": gusts_assessed,
         },
+        wind_position=wind_position,
     )

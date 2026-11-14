@@ -244,6 +244,38 @@ def _proxy_note(meta: dict) -> Optional[str]:
             "Stations can disagree, and conditions at the spot can differ.")
 
 
+def guidance_payload(assessment, publish_guidance: bool) -> dict:
+    """The guidance part of a response. Unpublished guidance keeps only factual flags."""
+    if publish_guidance:
+        guidance = {
+            "status": assessment.status,
+            "summary": assessment.summary,
+            "flags": [vars(f) for f in assessment.flags],
+            "wind_status": assessment.wind_status,
+            "wind_summary": assessment.wind_summary,
+            "wind_reasons": assessment.wind_reasons,
+            "scope": assessment.scope,
+            "wind_position": assessment.wind_position,
+        }
+    else:
+        guidance = {
+            "status": "not_published",
+            "summary": "Guidance for this sport and level is awaiting instructor review.",
+            "flags": [vars(f) for f in assessment.flags if f.code in FACTUAL_FLAG_CODES],
+            "wind_status": None,
+            "wind_summary": None,
+            "wind_reasons": [],
+            "scope": {},
+            "wind_position": None,
+        }
+    guidance.update({
+        "review_status": assessment.review_status,
+        "rule_version": assessment.rule_version,
+        "rules_engine_version": assessment.rules_engine_version,
+    })
+    return guidance
+
+
 def build_payload(spot: dict, activity: str, level: str, obs: Observation, meta: dict,
                   assessment, publish_guidance: bool, now: Optional[datetime] = None) -> dict:
     """Assemble the public response. Observations are always facts with their source and age.
@@ -288,31 +320,7 @@ def build_payload(spot: dict, activity: str, level: str, obs: Observation, meta:
             "stale": li.age_min is None or li.age_min > LIGHTNING_STALE_MIN,
         }
 
-    if publish_guidance:
-        guidance = {
-            "status": assessment.status,
-            "summary": assessment.summary,
-            "flags": [vars(f) for f in assessment.flags],
-            "wind_status": assessment.wind_status,
-            "wind_summary": assessment.wind_summary,
-            "wind_reasons": assessment.wind_reasons,
-            "scope": assessment.scope,
-        }
-    else:
-        guidance = {
-            "status": "not_published",
-            "summary": "Guidance for this sport and level is awaiting instructor review.",
-            "flags": [vars(f) for f in assessment.flags if f.code in FACTUAL_FLAG_CODES],
-            "wind_status": None,
-            "wind_summary": None,
-            "wind_reasons": [],
-            "scope": {},
-        }
-    guidance.update({
-        "review_status": assessment.review_status,
-        "rule_version": assessment.rule_version,
-        "rules_engine_version": assessment.rules_engine_version,
-    })
+    guidance = guidance_payload(assessment, publish_guidance)
 
     return {
         "spot": spot,

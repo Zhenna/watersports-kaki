@@ -351,3 +351,17 @@ class TestSeveralStationPayload(unittest.TestCase):
         self.assertIn("3 nearby stations", note)
         self.assertIn("Alpha, Bravo, Charlie", note)
         self.assertIn("can disagree", note)
+
+
+class TestPayloadWindPosition(unittest.TestCase):
+    def build(self, publish):
+        from services.conditions_service import build_payload
+        obs, meta = build_observation(wind_feed(iso(3)), dir_feed(), lightning_feed(), *SPOT, now=NOW)
+        a = evaluate("windsurf", "beginner", obs, RULES)
+        return build_payload({"slug": "x"}, "windsurf", "beginner", obs, meta, a, publish, now=NOW)
+
+    def test_published_guidance_says_which_side_of_the_range(self):
+        self.assertEqual(self.build(True)["guidance"]["wind_position"], "within")
+
+    def test_unpublished_guidance_hides_it(self):
+        self.assertIsNone(self.build(False)["guidance"]["wind_position"])

@@ -274,6 +274,22 @@ class TestSeveralStations(unittest.TestCase):
         self.assertEqual(a.inputs["wind_readings_kmh"], [9, 12])
 
 
+class TestWindPosition(unittest.TestCase):
+    def test_below_within_above_and_mixed(self):
+        cases = [(multi(2, 5), "below"), (multi(9, 12), "within"), (multi(25, 30), "above"), (multi(5, 12), "mixed")]
+        for o, expected in cases:
+            self.assertEqual(evaluate("windsurf", "beginner", o, RULES, sectors=SECTORS).wind_position, expected)
+
+    def test_a_single_reading_has_a_position(self):
+        self.assertEqual(evaluate("windsurf", "beginner", obs(wind=4), RULES).wind_position, "below")
+        self.assertEqual(evaluate("windsurf", "beginner", obs(wind=40), RULES).wind_position, "above")
+
+    def test_no_position_when_wind_was_not_assessed(self):
+        self.assertIsNone(evaluate("windsurf", "beginner", obs(wind=None), RULES).wind_position)
+        self.assertIsNone(evaluate("windsurf", "expert", obs(), RULES).wind_position)
+        self.assertIsNone(evaluate("wakesurf", "beginner", obs(wind=None, age=None), [], wind_dependent=False).wind_position)
+
+
 class TestReviewAndWording(unittest.TestCase):
     def test_unreviewed_rules_are_labelled(self):
         a = evaluate("sup", "beginner", obs(wind=8), RULES)
