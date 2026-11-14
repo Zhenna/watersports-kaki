@@ -223,3 +223,19 @@ class TestMappedStationAndPayload(unittest.TestCase):
         a = evaluate("windsurf", "beginner", obs, RULES)
         p = build_payload({"slug": "x"}, "windsurf", "beginner", obs, meta, a, True, now=NOW)
         self.assertIsNone(p["observations"]["wind"]["note"])
+
+
+class TestStaleFlags(unittest.TestCase):
+    def payload(self, wind_ago):
+        from services.conditions_service import build_payload
+        obs, meta = build_observation(wind_feed(iso(wind_ago)), dir_feed(), lightning_feed(), *SPOT, now=NOW)
+        a = evaluate("windsurf", "beginner", obs, RULES)
+        return build_payload({"slug": "x"}, "windsurf", "beginner", obs, meta, a, True, now=NOW)
+
+    def test_fresh_readings_are_not_stale(self):
+        p = self.payload(3)
+        self.assertFalse(p["observations"]["wind"]["stale"])
+        self.assertFalse(p["observations"]["lightning"]["stale"])
+
+    def test_old_wind_is_stale(self):
+        self.assertTrue(self.payload(30)["observations"]["wind"]["stale"])

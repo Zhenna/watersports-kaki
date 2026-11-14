@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#0D2C5B">
+<title>East Coast windsurfing conditions | WaterSports Kaki</title>
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@800;900&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="top">
+  <img src="logo-emblem.png" alt="">
+  <div>
+    <div class="brand">WaterSports Kaki</div>
+    <div class="spot" id="spot-name"></div>
+  </div>
+</header>
+<main>
+  <h1>Windsurfing conditions</h1>
+  <div class="controls">
+    <label for="level">Skill level</label>
+    <select id="level"></select>
+    <button id="refresh" type="button">Refresh</button>
+  </div>
+  <p id="updated" class="muted" aria-live="polite"></p>
+  <div id="banner" role="status" aria-live="polite" hidden></div>
+  <noscript><p class="banner error">This page needs JavaScript. Check official advisories at weather.gov.sg.</p></noscript>
+  <section id="wind" class="card"></section>
+  <section id="lightning" class="card"></section>
+  <section id="guidance" class="card"></section>
+  <section id="about" class="card plain"></section>
+</main>
+<script type="module" src="app.js"></script>
+</body>
+</html>

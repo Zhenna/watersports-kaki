@@ -21,6 +21,8 @@ from services.conditions_rules import (
     DEFAULT_LIGHTNING_RADIUS_KM,
     DEFAULT_LIGHTNING_LOOKBACK_MIN,
     KMH_PER_KNOT,
+    WIND_STALE_MIN,
+    LIGHTNING_STALE_MIN,
 )
 
 DISCLAIMER = (
@@ -211,6 +213,7 @@ def build_payload(spot: dict, activity: str, level: str, obs: Observation, meta:
             "direction_station": meta.get("direction_station"),
             "observed_at": _to_sgt(meta.get("wind_observed_at")),
             "age_min": round(obs.wind_age_min, 1) if obs.wind_age_min is not None else None,
+            "stale": obs.wind_age_min is None or obs.wind_age_min > WIND_STALE_MIN,
             "note": _proxy_note(meta),
         }
 
@@ -224,6 +227,7 @@ def build_payload(spot: dict, activity: str, level: str, obs: Observation, meta:
             "lookback_min": li.lookback_min,
             "fetched_at": _to_sgt(meta.get("lightning_fetched_at")),
             "age_min": round(li.age_min, 1) if li.age_min is not None else None,
+            "stale": li.age_min is None or li.age_min > LIGHTNING_STALE_MIN,
         }
 
     if publish_guidance:
