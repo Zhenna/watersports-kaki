@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from api.routes import weather, users, checkins, spots, spot_conditions
+from api.routes import weather, users, checkins, spots, spot_conditions, catalog
 from core.config import settings
 
 app = FastAPI(
@@ -22,6 +22,7 @@ app.include_router(users.router, prefix="/api/users", tags=["users"])
 app.include_router(checkins.router, prefix="/api/checkins", tags=["checkins"])
 app.include_router(spots.router, prefix="/api/spots", tags=["spots"])
 app.include_router(spot_conditions.router, prefix="/api/spots", tags=["spot-conditions"])
+app.include_router(catalog.router, prefix="/api/catalog", tags=["catalog"])
 
 @app.get("/")
 def root():

@@ -98,6 +98,12 @@ class Assessment:
     rules_engine_version: str
     rule_version: Optional[str]
     inputs: dict
+    # Wind assessed on its own, so a lightning flag never hides it (and is not repeated in it).
+    wind_status: str = "unavailable"  # within | outside | unavailable | not_applicable
+    wind_summary: Optional[str] = None
+    wind_reasons: list = field(default_factory=list)
+    # What this assessment actually covered.
+    scope: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -109,6 +115,10 @@ class Assessment:
             "rules_engine_version": self.rules_engine_version,
             "rule_version": self.rule_version,
             "inputs": self.inputs,
+            "wind_status": self.wind_status,
+            "wind_summary": self.wind_summary,
+            "wind_reasons": self.wind_reasons,
+            "scope": self.scope,
         }
 
 
@@ -156,6 +166,9 @@ def evaluate(
     within_note: Optional[str] = None
     review_status = "not_applicable"
     rule_version: Optional[str] = None
+    wind_reasons: list = []
+    direction_assessed = False
+    gusts_assessed = False
     inputs: dict = {
         "activity": activity_slug,
         "level": level,
@@ -202,6 +215,7 @@ def evaluate(
     if wind_dependent:
         rule = _find_rule(rules, activity_slug, level, "wind_speed_kmh")
         if rule is None:
+            wind_reasons.append(f"no WSK reference range for {activity_slug} at {level} level")
             reasons.append(f"no WSK reference range for {activity_slug} at {level} level")
         else:
             rule_version = rule.rule_version
@@ -214,8 +228,10 @@ def evaluate(
                 ))
 
         if not _valid(obs.wind_kmh):
+            wind_reasons.append("wind data unavailable")
             reasons.append("wind data unavailable")
         elif not _valid(obs.wind_age_min) or obs.wind_age_min > WIND_STALE_MIN:
+            wind_reasons.append("wind data is out of date")
             reasons.append("wind data is out of date")
         elif rule is not None:
             lo, hi = rule.min_value, rule.max_value
@@ -240,6 +256,7 @@ def evaluate(
 
             # gusts: supplementary, and never silently treated as benign
             if _valid(obs.gust_kmh):
+                gusts_assessed = hi is not None
                 if hi is not None and obs.gust_kmh > hi:
                     flags.append(Flag(
                         "gusts_above_reference", "caution",
@@ -265,6 +282,7 @@ def evaluate(
                 ))
             else:
                 cls = classify_direction(obs.wind_from_deg, sectors)
+                direction_assessed = cls is not None
                 if cls is None:
                     flags.append(Flag(
                         "direction_not_assessed", "info",
@@ -292,6 +310,19 @@ def evaluate(
                     ))
 
     flags.sort(key=lambda f: _SEVERITY_ORDER.get(f.severity, 9))
+
+    # ---- the wind result on its own --------------------------------------
+    wind_summary: Optional[str] = None
+    if not wind_dependent:
+        wind_status = "not_applicable"
+    elif outside_note:
+        wind_status = "outside"
+        wind_summary = outside_note + " This is not a safety assessment."
+    elif within_note:
+        wind_status = "within"
+        wind_summary = within_note + " This is not a safety clearance."
+    else:
+        wind_status = "unavailable"
 
     # ---- status: hazard flags first, then missing data, then wind --------
     has_hazard = any(f.severity in ("hazard", "advise_against") for f in flags)
@@ -327,4 +358,12 @@ def evaluate(
         rules_engine_version=RULES_ENGINE_VERSION,
         rule_version=rule_version,
         inputs=inputs,
+        wind_status=wind_status,
+        wind_summary=wind_summary,
+        wind_reasons=wind_reasons,
+        scope={
+            "wind_speed": wind_status in ("within", "outside"),
+            "direction": direction_assessed,
+            "gusts": gusts_assessed,
+        },
     )

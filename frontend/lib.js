@@ -73,10 +73,32 @@ export function isSafeHttpsUrl(u) {
   }
 }
 
-export function apiUrl(config, level) {
-  const base = config.API_BASE.replace(/\/+$/, "");
-  const q = new URLSearchParams({ activity: config.ACTIVITY, level });
-  return `${base}/api/spots/${encodeURIComponent(config.SPOT_SLUG)}/conditions?${q}`;
+function base(config) {
+  return config.API_BASE.replace(/\/+$/, "");
+}
+
+export function catalogActivitiesUrl(config) {
+  return `${base(config)}/api/catalog/activities`;
+}
+
+export function catalogSpotsUrl(config, activity) {
+  return `${base(config)}/api/catalog/spots?${new URLSearchParams({ activity })}`;
+}
+
+export function conditionsUrl(config, { spot, activity, level }) {
+  const q = new URLSearchParams({ activity, level });
+  return `${base(config)}/api/spots/${encodeURIComponent(spot)}/conditions?${q}`;
+}
+
+export function selectionFromQuery(search) {
+  const q = new URLSearchParams(search);
+  return { activity: q.get("activity"), spot: q.get("spot"), level: levelFromQuery(search) };
+}
+
+// Use the wanted option if it exists, otherwise the first one. Never invent a value.
+export function pickOption(options, wantedSlug) {
+  if (!Array.isArray(options) || options.length === 0) return null;
+  return options.find((o) => o.slug === wantedSlug) ?? options[0];
 }
 
 export function errorMessage(kind, status) {
@@ -87,6 +109,68 @@ export function errorMessage(kind, status) {
   }
   if (kind === "timeout") return "Conditions took too long to load.";
   return "Couldn't reach the conditions service.";
+}
+
+// Shown elsewhere (the lightning alert, the "not assessed" list), so not repeated as flags.
+const HIDDEN_FLAG_CODES = new Set([
+  "lightning_observed", "no_strikes_observed",
+  "gusts_not_available", "direction_not_assessed", "wind_direction_unavailable",
+]);
+
+export function pillLabel(g) {
+  if (g.status === "not_published") return STATUS_LABELS.not_published;
+  const partial = !(g.scope?.direction && g.scope?.gusts);
+  switch (g.wind_status) {
+    case "within":
+      return partial ? "Wind speed only: within WSK reference range" : STATUS_LABELS.within_reference_range;
+    case "outside": return STATUS_LABELS.outside_reference_range;
+    case "not_applicable": return STATUS_LABELS.wind_not_applicable;
+    case "unavailable": return STATUS_LABELS.unavailable;
+    default: return STATUS_LABELS[g.status] ?? UNKNOWN_STATUS;  // older API responses
+  }
+}
+
+export function notAssessed(g) {
+  if (g.wind_status !== "within" && g.wind_status !== "outside") return [];
+  const out = [];
+  if (!g.scope?.direction) out.push("wind direction relative to the shore");
+  if (!g.scope?.gusts) out.push("gusts");
+  return out;
+}
+
+function guidanceSummary(g) {
+  if (g.status === "not_published") return g.summary || "Awaiting instructor review.";
+  switch (g.wind_status) {
+    case "within":
+    case "outside": return g.wind_summary || g.summary || "Assessment unavailable.";
+    case "not_applicable": return "Wind limits are not part of this activity's assessment.";
+    case "unavailable": {
+      const why = (g.wind_reasons || []).join("; ");
+      return `Wind assessment unavailable${why ? `: ${why}` : ""}. ${FAIL_CLOSED_NOTE}`;
+    }
+    default: return g.summary || "Assessment unavailable.";
+  }
+}
+
+// One alert, shown once, at the top. Lightning data that is missing or old is also an alert.
+export function buildAlert(li) {
+  if (!li) {
+    return { kind: "unavailable", title: "Lightning data unavailable", text: "Check official advisories before going out." };
+  }
+  if (li.stale !== false) {
+    return { kind: "unavailable", title: "Lightning data is out of date", text: "Check official advisories before going out." };
+  }
+  const n = li.strikes_within_radius ?? 0;
+  if (n > 0) {
+    const near = li.nearest_km != null ? ` Nearest strike: ${li.nearest_km} km away.` : "";
+    return {
+      kind: "lightning",
+      title: "Lightning detected nearby",
+      text: `${n} strike${n === 1 ? "" : "s"} within ${li.radius_km} km in the last ${li.lookback_min} minutes.${near} ` +
+            "Follow official advisories and your operator's procedures.",
+    };
+  }
+  return null;
 }
 
 function stationText(s) {
@@ -143,25 +227,31 @@ export function buildView(p) {
     };
   }
 
-  const status = g.status;
   return {
     spotName: p?.spot?.name ?? "",
     activityLabel: titleCase(p?.activity),
     levelLabel: LEVEL_LABELS[p?.level] ?? titleCase(p?.level),
     updated: formatTimeSGT(p?.generated_at),
+    alert: buildAlert(li),
+    windLine: windView
+      ? `Wind now: ${windView.knots}, ${windView.direction.startsWith("from") ? windView.direction : "direction unavailable"}`
+      : null,
     wind: windView,
     windMessage: windView ? null : "Wind data unavailable.",
     lightning: lightningView,
     lightningMessage: lightningView ? null : "Lightning data unavailable. Check official advisories.",
     guidance: {
-      status: status || "unavailable",
-      statusLabel: STATUS_LABELS[status] ?? UNKNOWN_STATUS,
-      summary: g.summary || "Assessment unavailable.",
-      flags: (g.flags || []).map((f) => ({
-        severity: f.severity,
-        label: SEVERITY_LABELS[f.severity] ?? "Note",
-        message: f.message,
-      })),
+      status: g.status || "unavailable",
+      statusLabel: pillLabel(g),
+      summary: guidanceSummary(g),
+      notAssessed: notAssessed(g),
+      flags: (g.flags || [])
+        .filter((f) => !HIDDEN_FLAG_CODES.has(f.code))
+        .map((f) => ({
+          severity: f.severity,
+          label: SEVERITY_LABELS[f.severity] ?? "Note",
+          message: f.message,
+        })),
     },
     sources: Array.isArray(p?.sources) ? p.sources : [],
     advisories: (p?.official_advisories || []).filter((a) => isSafeHttpsUrl(a.url)),

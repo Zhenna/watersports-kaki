@@ -172,6 +172,51 @@ class TestWindText(unittest.TestCase):
         self.assertIn("1.5 km/h (0.8 knots)", a.summary)
 
 
+class TestWindResultAndScope(unittest.TestCase):
+    def test_within_range_without_sectors_is_a_partial_scope(self):
+        a = evaluate("windsurf", "beginner", obs(wind=12), RULES, sectors=[])
+        self.assertEqual(a.wind_status, "within")
+        self.assertIn("within the WSK reference range", a.wind_summary)
+        self.assertEqual(a.scope, {"wind_speed": True, "direction": False, "gusts": False})
+
+    def test_scope_grows_when_direction_and_gusts_are_assessed(self):
+        a = evaluate("windsurf", "intermediate", obs(wind=20, gust=25, frm=180), RULES, sectors=SECTORS)
+        self.assertEqual(a.scope, {"wind_speed": True, "direction": True, "gusts": True})
+
+    def test_unmapped_direction_is_not_counted_as_assessed(self):
+        a = evaluate("windsurf", "beginner", obs(wind=12, frm=180), RULES, sectors=[WindSector(0, 10, "offshore")])
+        self.assertFalse(a.scope["direction"])
+
+    def test_lightning_flag_does_not_hide_the_wind_result(self):
+        li = calm_lightning(strikes=3, nearest=8.0)
+        a = evaluate("windsurf", "beginner", obs(wind=12, lightning=li), RULES, sectors=SECTORS)
+        self.assertEqual(a.status, STATUS_FLAGGED)
+        self.assertEqual(a.wind_status, "within")
+        self.assertNotIn("Lightning", a.wind_summary)
+
+    def test_wind_reasons_exclude_lightning_problems(self):
+        a = evaluate("windsurf", "beginner", obs(wind=None, lightning=None), RULES, sectors=SECTORS)
+        self.assertEqual(a.wind_status, "unavailable")
+        self.assertIsNone(a.wind_summary)
+        self.assertEqual(a.wind_reasons, ["wind data unavailable"])
+        self.assertIn("lightning data unavailable", a.unavailable_reasons)
+
+    def test_missing_rule_makes_wind_unavailable(self):
+        a = evaluate("windsurf", "expert", obs(), RULES, sectors=SECTORS)
+        self.assertEqual(a.wind_status, "unavailable")
+        self.assertTrue(any("no WSK reference range" in r for r in a.wind_reasons))
+
+    def test_wind_independent_activity(self):
+        a = evaluate("wakesurf", "beginner", obs(wind=None, age=None), [], wind_dependent=False)
+        self.assertEqual(a.wind_status, "not_applicable")
+        self.assertFalse(a.scope["wind_speed"])
+
+    def test_outside_range_summary(self):
+        a = evaluate("windsurf", "beginner", obs(wind=40), RULES, sectors=SECTORS)
+        self.assertEqual(a.wind_status, "outside")
+        self.assertIn("above", a.wind_summary)
+
+
 class TestReviewAndWording(unittest.TestCase):
     def test_unreviewed_rules_are_labelled(self):
         a = evaluate("sup", "beginner", obs(wind=8), RULES)

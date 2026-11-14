@@ -235,12 +235,20 @@ def build_payload(spot: dict, activity: str, level: str, obs: Observation, meta:
             "status": assessment.status,
             "summary": assessment.summary,
             "flags": [vars(f) for f in assessment.flags],
+            "wind_status": assessment.wind_status,
+            "wind_summary": assessment.wind_summary,
+            "wind_reasons": assessment.wind_reasons,
+            "scope": assessment.scope,
         }
     else:
         guidance = {
             "status": "not_published",
             "summary": "Guidance for this sport and level is awaiting instructor review.",
             "flags": [vars(f) for f in assessment.flags if f.code in FACTUAL_FLAG_CODES],
+            "wind_status": None,
+            "wind_summary": None,
+            "wind_reasons": [],
+            "scope": {},
         }
     guidance.update({
         "review_status": assessment.review_status,

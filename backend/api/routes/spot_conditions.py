@@ -1,5 +1,4 @@
 import asyncio
-import os
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from starlette.concurrency import run_in_threadpool
@@ -16,11 +15,6 @@ LEVELS = {"never_tried", "beginner", "intermediate", "advanced"}
 cache = FeedCache(ttl_seconds=60)
 
 
-def _preview_mode() -> bool:
-    """Local testing only: allows non-public spots and unreviewed rules and sectors."""
-    return os.getenv("WSK_SHOW_PRIVATE_SPOTS") == "1"
-
-
 @router.get("/{slug}/conditions")
 async def spot_conditions(
     slug: str,
@@ -30,7 +24,7 @@ async def spot_conditions(
 ):
     if level not in LEVELS:
         raise HTTPException(status_code=422, detail=f"level must be one of {sorted(LEVELS)}")
-    preview = _preview_mode()
+    preview = repo.preview_mode()
 
     try:
         ctx = await run_in_threadpool(repo.load_context, slug, activity, level, preview)

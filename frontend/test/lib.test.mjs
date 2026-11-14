@@ -2,12 +2,15 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   degreesToCardinal, formatTimeSGT, agoText, levelFromQuery, isSafeHttpsUrl,
-  apiUrl, errorMessage, buildView, STATUS_LABELS,
+  catalogActivitiesUrl, catalogSpotsUrl, conditionsUrl, selectionFromQuery, pickOption,
+  errorMessage, buildView, buildAlert, pillLabel, notAssessed, STATUS_LABELS,
 } from "../lib.js";
 
-// The real response from the East Coast endpoint, with the newer fields added.
+const CONFIG = { API_BASE: "http://127.0.0.1:8000/" };
+
+// The real East Coast response, with the newer fields added.
 const NORMAL = {
-  spot: { slug: "east-coast-parkway-carpark-e5", name: "East Coast Parkway (Carpark E5)", lat: 1.3021, lng: 103.913 },
+  spot: { slug: "east-coast", name: "East Coast Parkway (Carpark E5)" },
   activity: "windsurf",
   level: "beginner",
   generated_at: "2026-11-04T20:38:50.593168+08:00",
@@ -27,9 +30,15 @@ const NORMAL = {
   guidance: {
     status: "outside_reference_range",
     summary: "Wind is 1.5 km/h (0.8 knots), below the WSK reference range of 8 to 20 km/h for beginner windsurf. This is not a safety assessment.",
+    wind_status: "outside",
+    wind_summary: "Wind is 1.5 km/h (0.8 knots), below the WSK reference range of 8 to 20 km/h for beginner windsurf. This is not a safety assessment.",
+    wind_reasons: [],
+    scope: { wind_speed: true, direction: false, gusts: false },
     flags: [
       { code: "no_strikes_observed", severity: "info", message: "No strikes observed within 20 km in the last 30 minutes. This is not an all-clear. Data may be delayed." },
       { code: "rules_unreviewed", severity: "info", message: "These reference ranges have not been reviewed by an instructor." },
+      { code: "gusts_not_available", severity: "info", message: "Gust data is not available, so gusts are not part of this assessment." },
+      { code: "direction_not_assessed", severity: "info", message: "Wind direction relative to the shore is not assessed for this spot yet." },
     ],
     review_status: "unreviewed",
   },
@@ -40,6 +49,15 @@ const NORMAL = {
     { label: "Plain http", url: "http://example.com" },
   ],
   disclaimer: "Information only.",
+};
+
+const withLightning = (n, nearest) => {
+  const p = structuredClone(NORMAL);
+  p.observations.lightning = { strikes_within_radius: n, nearest_km: nearest, radius_km: 20, lookback_min: 30, fetched_at: NORMAL.generated_at, age_min: 0, stale: false };
+  p.guidance.flags.unshift({ code: "lightning_observed", severity: "hazard", message: "Lightning detected nearby: 3 strike(s)..." });
+  p.guidance.status = "flagged";
+  p.guidance.summary = "Lightning detected nearby: 3 strike(s)...";
+  return p;
 };
 
 test("cardinal directions", () => {
@@ -81,9 +99,23 @@ test("only https links are allowed", () => {
   assert.equal(isSafeHttpsUrl("nonsense"), false);
 });
 
-test("api url is built from config", () => {
-  const url = apiUrl({ API_BASE: "http://127.0.0.1:8000/", SPOT_SLUG: "east-coast", ACTIVITY: "windsurf" }, "beginner");
-  assert.equal(url, "http://127.0.0.1:8000/api/spots/east-coast/conditions?activity=windsurf&level=beginner");
+test("urls are built from config and the selection", () => {
+  assert.equal(catalogActivitiesUrl(CONFIG), "http://127.0.0.1:8000/api/catalog/activities");
+  assert.equal(catalogSpotsUrl(CONFIG, "windsurf"), "http://127.0.0.1:8000/api/catalog/spots?activity=windsurf");
+  assert.equal(
+    conditionsUrl(CONFIG, { spot: "east-coast", activity: "windsurf", level: "beginner" }),
+    "http://127.0.0.1:8000/api/spots/east-coast/conditions?activity=windsurf&level=beginner",
+  );
+});
+
+test("selection comes from the query and options never get invented", () => {
+  const sel = selectionFromQuery("?activity=windsurf&spot=marina&level=advanced");
+  assert.deepEqual(sel, { activity: "windsurf", spot: "marina", level: "advanced" });
+  const opts = [{ slug: "a", name: "A" }, { slug: "b", name: "B" }];
+  assert.equal(pickOption(opts, "b").slug, "b");
+  assert.equal(pickOption(opts, "zzz").slug, "a");   // unknown falls back to the first real option
+  assert.equal(pickOption(opts, null).slug, "a");
+  assert.equal(pickOption([], "a"), null);
 });
 
 test("normal payload becomes a readable view", () => {
@@ -95,40 +127,73 @@ test("normal payload becomes a readable view", () => {
   assert.equal(v.wind.observed, "Observed 20:34 SGT, 5 min ago");
   assert.equal(v.wind.stale, false);
   assert.match(v.wind.note, /Conditions at the spot can differ/);
+  assert.equal(v.windLine, "Wind now: 0.8 kn, from NNE (32°)");
   assert.equal(v.lightning.headline, "No strikes observed within 20 km in the last 30 min");
   assert.match(v.lightning.detail, /not an all-clear/);
-  assert.match(v.lightning.detail, /44\.3 km/);
-  assert.equal(v.guidance.statusLabel, "Outside WSK reference range");
-  assert.equal(v.guidance.flags.length, 2);
-  assert.equal(v.guidance.flags[0].label, "Note");
   assert.equal(v.levelLabel, "Beginner");
   assert.equal(v.updated, "20:38");
+  assert.equal(v.alert, null);
+});
+
+test("guidance shows the wind result without repeating other items", () => {
+  const g = buildView(NORMAL).guidance;
+  assert.equal(g.statusLabel, "Outside WSK reference range");
+  assert.match(g.summary, /below the WSK reference range/);
+  assert.deepEqual(g.notAssessed, ["wind direction relative to the shore", "gusts"]);
+  // lightning and "not assessed" flags are shown elsewhere, so only the review note remains
+  assert.deepEqual(g.flags.map((f) => f.message), ["These reference ranges have not been reviewed by an instructor."]);
+});
+
+test("a within-range result is labelled as wind speed only until direction and gusts exist", () => {
+  const p = structuredClone(NORMAL);
+  p.guidance.wind_status = "within";
+  assert.equal(buildView(p).guidance.statusLabel, "Wind speed only: within WSK reference range");
+  p.guidance.scope = { wind_speed: true, direction: true, gusts: true };
+  assert.equal(buildView(p).guidance.statusLabel, STATUS_LABELS.within_reference_range);
+  assert.deepEqual(buildView(p).guidance.notAssessed, []);
+});
+
+test("nearby lightning is one alert at the top and not repeated in the guidance", () => {
+  const v = buildView(withLightning(3, 8.2));
+  assert.equal(v.alert.kind, "lightning");
+  assert.equal(v.alert.title, "Lightning detected nearby");
+  assert.match(v.alert.text, /3 strikes within 20 km/);
+  assert.match(v.alert.text, /8\.2 km/);
+  assert.match(v.alert.text, /official advisories/);
+  assert.ok(!v.guidance.flags.some((f) => /Lightning/.test(f.message)));
+  assert.doesNotMatch(v.guidance.summary, /Lightning/);
+  assert.equal(v.lightning.headline, "Lightning detected nearby");  // details still hold the facts
+});
+
+test("alerts for missing or old lightning data", () => {
+  assert.equal(buildAlert(null).kind, "unavailable");
+  assert.equal(buildAlert(null).title, "Lightning data unavailable");
+  const old = { strikes_within_radius: 0, radius_km: 20, lookback_min: 30, stale: true };
+  assert.equal(buildAlert(old).title, "Lightning data is out of date");
+  assert.equal(buildAlert({ strikes_within_radius: 0, radius_km: 20, lookback_min: 30, stale: false }), null);
+  assert.equal(buildAlert({ strikes_within_radius: 1, nearest_km: 2, radius_km: 20, lookback_min: 30 }).title, "Lightning data is out of date"); // missing stale flag counts as stale
 });
 
 test("unsafe or non-https advisory links are dropped", () => {
-  const v = buildView(NORMAL);
-  assert.deepEqual(v.advisories.map((a) => a.label), ["Meteorological Service Singapore"]);
-});
-
-test("nearby lightning is reported plainly", () => {
-  const p = structuredClone(NORMAL);
-  p.observations.lightning = { strikes_within_radius: 3, nearest_km: 8.2, radius_km: 20, lookback_min: 30, fetched_at: NORMAL.generated_at, age_min: 0, stale: false };
-  const v = buildView(p);
-  assert.equal(v.lightning.headline, "Lightning detected nearby");
-  assert.match(v.lightning.detail, /3 strikes within 20 km/);
-  assert.match(v.lightning.detail, /8\.2 km/);
+  assert.deepEqual(buildView(NORMAL).advisories.map((a) => a.label), ["Meteorological Service Singapore"]);
 });
 
 test("missing feeds show unavailable, never a favourable state", () => {
   const p = structuredClone(NORMAL);
   p.observations = { wind: null, gusts: null, lightning: null };
-  p.guidance = { status: "unavailable", summary: "Assessment unavailable: wind data unavailable; lightning data unavailable.", flags: [] };
+  p.guidance = {
+    status: "unavailable", summary: "x", wind_status: "unavailable",
+    wind_reasons: ["wind data unavailable"], scope: { wind_speed: false, direction: false, gusts: false }, flags: [],
+  };
   const v = buildView(p);
   assert.equal(v.wind, null);
+  assert.equal(v.windLine, null);
   assert.equal(v.windMessage, "Wind data unavailable.");
-  assert.equal(v.lightning, null);
-  assert.match(v.lightningMessage, /Check official advisories/);
+  assert.equal(v.alert.title, "Lightning data unavailable");
   assert.equal(v.guidance.statusLabel, "Assessment unavailable");
+  assert.match(v.guidance.summary, /Wind assessment unavailable: wind data unavailable/);
+  assert.match(v.guidance.summary, /Check official advisories/);
+  assert.deepEqual(v.guidance.notAssessed, []);
 });
 
 test("stale readings are marked, and a missing stale flag counts as stale", () => {
@@ -141,22 +206,26 @@ test("stale readings are marked, and a missing stale flag counts as stale", () =
 
 test("unreviewed guidance is shown as awaiting review", () => {
   const p = structuredClone(NORMAL);
-  p.guidance = { status: "not_published", summary: "Guidance for this sport and level is awaiting instructor review.", flags: [] };
+  p.guidance = { status: "not_published", summary: "Guidance for this sport and level is awaiting instructor review.", flags: [], wind_status: null, scope: {} };
   const v = buildView(p);
   assert.equal(v.guidance.statusLabel, "Awaiting instructor review");
+  assert.match(v.guidance.summary, /awaiting instructor review/);
 });
 
-test("unknown status falls back to unavailable", () => {
-  const p = structuredClone(NORMAL);
-  p.guidance = { status: "all_good", summary: "x", flags: [] };
-  assert.equal(buildView(p).guidance.statusLabel, STATUS_LABELS.unavailable);
-  assert.equal(buildView({}).guidance.statusLabel, STATUS_LABELS.unavailable);
+test("pill labels cover every state, and unknown input is never favourable", () => {
+  assert.equal(pillLabel({ wind_status: "not_applicable", scope: {} }), "Wind limits not applicable");
+  assert.equal(pillLabel({ wind_status: "unavailable", scope: {} }), "Assessment unavailable");
+  assert.equal(pillLabel({ status: "within_reference_range" }), "Within WSK reference range"); // older API shape
+  assert.equal(pillLabel({ status: "all_good" }), STATUS_LABELS.unavailable);
+  assert.equal(pillLabel({}), STATUS_LABELS.unavailable);
+  assert.deepEqual(notAssessed({ wind_status: "unavailable" }), []);
 });
 
 test("no verdict wording in any label or fallback", () => {
   const banned = /good to go|safe to|get off the water|cat 1|cancel/i;
   for (const label of Object.values(STATUS_LABELS)) assert.doesNotMatch(label, banned);
   assert.doesNotMatch(errorMessage("http", 500), banned);
+  assert.doesNotMatch(buildView(withLightning(2, 5)).alert.text, banned);
 });
 
 test("error messages", () => {

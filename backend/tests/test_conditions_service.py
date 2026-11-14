@@ -239,3 +239,24 @@ class TestStaleFlags(unittest.TestCase):
 
     def test_old_wind_is_stale(self):
         self.assertTrue(self.payload(30)["observations"]["wind"]["stale"])
+
+
+class TestPayloadWindFields(unittest.TestCase):
+    def build(self, publish):
+        from services.conditions_service import build_payload
+        obs, meta = build_observation(wind_feed(iso(3)), dir_feed(), lightning_feed(), *SPOT, now=NOW)
+        a = evaluate("windsurf", "beginner", obs, RULES)
+        return build_payload({"slug": "x"}, "windsurf", "beginner", obs, meta, a, publish, now=NOW)
+
+    def test_published_guidance_carries_wind_result_and_scope(self):
+        g = self.build(True)["guidance"]
+        self.assertEqual(g["wind_status"], "within")
+        self.assertIn("within the WSK reference range", g["wind_summary"])
+        self.assertEqual(g["scope"], {"wind_speed": True, "direction": False, "gusts": False})
+
+    def test_unpublished_guidance_hides_the_wind_result(self):
+        g = self.build(False)["guidance"]
+        self.assertEqual(g["status"], "not_published")
+        self.assertIsNone(g["wind_status"])
+        self.assertIsNone(g["wind_summary"])
+        self.assertEqual(g["scope"], {})
