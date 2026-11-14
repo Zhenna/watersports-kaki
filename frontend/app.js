@@ -1,8 +1,8 @@
 import { CONFIG } from "./config.js";
 import {
   LEVELS, LEVEL_LABELS, SLOTS, selectionFromQuery, pickOption, catalogActivitiesUrl,
-  catalogSpotsUrl, conditionsUrl, buildView, errorMessage, FAIL_CLOSED_NOTE,
-  upcomingWeekendDays, planSummary, formHint,
+  catalogSpotsUrl, conditionsUrl, forecastUrl, buildView, buildForecastView, errorMessage,
+  FAIL_CLOSED_NOTE, upcomingDays, planSummary, formHint,
 } from "./lib.js";
 
 const $ = (id) => document.getElementById(id);
@@ -16,12 +16,12 @@ function el(tag, cls, text) {
 }
 
 const state = {
-  activities: [], spots: [], activity: null, spot: null, level: "beginner",
+  activities: [], spots: [], activity: null, spot: null, level: "beginner", tab: "now",
   plan: { days: [], dayIdx: 0, slot: "AM" },
+  forecast: { key: null, status: "idle", payload: null },
 };
 let lastLoad = 0;
 let inflight = null;
-let lastCtx = null;
 
 // ---------- small helpers ----------
 async function getJson(url, timeoutMs = 25000) {
@@ -53,20 +53,23 @@ function updateUrl() {
   if (state.activity) url.searchParams.set("activity", state.activity.slug);
   if (state.spot) url.searchParams.set("spot", state.spot.slug);
   url.searchParams.set("level", state.level);
+  if (state.tab === "plan") url.searchParams.set("tab", "plan");
+  else url.searchParams.delete("tab");
   history.replaceState(null, "", url);
 }
 
-function clearSections() {
-  for (const id of ["guidance", "lightning", "plan", "about"]) $(id).replaceChildren();
-  $("lightning").className = "card";
-  $("context").textContent = "Conditions";
+function clearNow() {
+  for (const id of ["headline", "lightning-alert", "details-body"]) $(id).replaceChildren();
+  $("lightning-alert").hidden = true;
+  $("details").hidden = true;
 }
 
-function showBanner(message, kind) {
+function showBanner(message, kind, withNote = false) {
   const b = $("banner");
   b.hidden = false;
   b.className = `banner ${kind}`;
-  b.replaceChildren(el("p", null, message));
+  b.replaceChildren(el("p", kind === "error" ? "strong" : null, message));
+  if (withNote) b.appendChild(el("p", null, FAIL_CLOSED_NOTE));
 }
 
 function hideBanner() {
@@ -75,15 +78,27 @@ function hideBanner() {
   b.replaceChildren();
 }
 
-function showError(message, withNote = true) {
-  clearSections();
+function setNowStatus(message, kind) {
+  const s = $("now-status");
+  if (!message) {
+    s.hidden = true;
+    s.replaceChildren();
+    return;
+  }
+  s.hidden = false;
+  s.className = `banner ${kind}`;
+  s.replaceChildren(el("p", kind === "error" ? "strong" : null, message));
+  if (kind === "error") s.appendChild(el("p", null, FAIL_CLOSED_NOTE));
+}
+
+// A problem with the sport or location lists blocks everything.
+function showFatal(message, withNote = true) {
+  clearNow();
+  $("plan").replaceChildren();
   $("updated").textContent = "";
-  const b = $("banner");
-  b.hidden = false;
-  b.className = "banner error";
-  b.replaceChildren(el("p", "strong", message));
-  if (withNote) b.appendChild(el("p", null, FAIL_CLOSED_NOTE));
-  $("about").appendChild(el("p", "small", "WSK shows weather data for information only. It is not safety advice."));
+  setNowStatus(null);
+  showBanner(message, "error", withNote);
+  renderAboutShort();
 }
 
 function advisoryLink(v) {
@@ -98,38 +113,65 @@ function advisoryLink(v) {
   return p;
 }
 
-// ---------- rendering ----------
-function renderSummary(v, ctx) {
-  const s = $("guidance");
+// ---------- tabs ----------
+function setTab(tab) {
+  state.tab = tab;
+  $("tab-now").className = tab === "now" ? "tab on" : "tab";
+  $("tab-plan").className = tab === "plan" ? "tab on" : "tab";
+  $("tab-now").setAttribute("aria-selected", String(tab === "now"));
+  $("tab-plan").setAttribute("aria-selected", String(tab === "plan"));
+  $("pane-now").hidden = tab !== "now";
+  $("pane-plan").hidden = tab !== "plan";
+  updateUrl();
+  if (tab === "plan") ensureForecast();
+}
+
+// ---------- right now ----------
+function renderHeadline(v, ctx) {
+  const s = $("headline");
   s.replaceChildren();
   const tagrow = el("div", "tagrow");
-  tagrow.appendChild(el("span", "chip-tag", "Conditions summary"));
+  tagrow.appendChild(el("span", "chip-tag", "Right now"));
   tagrow.appendChild(el("span", "small", `${v.levelLabel} ${ctx.activityName.toLowerCase()}`));
   s.appendChild(tagrow);
-
   s.appendChild(el("p", "headline", v.headline || "Wind data unavailable"));
   s.appendChild(el("span", "pill", v.guidance.statusLabel));
-  s.appendChild(el("p", "summary", v.guidance.summary));
+  if (v.windLine) s.appendChild(el("p", "windline", v.windLine));
+  if (v.guidance.summary) s.appendChild(el("p", "summary", v.guidance.summary));
+  if (!v.wind && v.windMessage) s.appendChild(el("p", "muted", v.windMessage));
+}
 
-  if (v.wind) {
-    const m = el("div", "metrics");
-    const a = el("div");
-    a.appendChild(el("p", "label", "Reported wind"));
-    a.appendChild(el("p", "metric", v.wind.big));
-    a.appendChild(el("p", "small", v.wind.directionShort));
-    const b = el("div");
-    b.appendChild(el("p", "label", "Source"));
-    b.appendChild(el("p", "metric", v.wind.source));
-    b.appendChild(el("p", "small", v.wind.sourceSub));
-    m.appendChild(a);
-    m.appendChild(b);
-    s.appendChild(m);
-  } else {
-    s.appendChild(el("p", "muted", v.windMessage));
+// Only when there is something to act on. Quiet lightning data lives in the details.
+function renderLightningAlert(v) {
+  const s = $("lightning-alert");
+  const c = v.lightningCard;
+  s.replaceChildren();
+  if (c.kind === "quiet") {
+    s.hidden = true;
+    return;
   }
+  s.hidden = false;
+  s.className = c.kind === "alert" ? "alert-box" : "alert-box unavailable";
+  s.appendChild(el("h2", null, c.pill));
+  s.appendChild(el("p", c.kind === "alert" ? "strong" : null, c.text));
+  if (c.sub) s.appendChild(el("p", "small", c.sub));
+  const link = advisoryLink(v);
+  if (link) s.appendChild(link);
+}
 
-  if (v.guidance.limitations) s.appendChild(el("p", "limits", `Limits: ${v.guidance.limitations}`));
+function block(title) {
+  const b = el("div", "block");
+  b.appendChild(el("h3", null, title));
+  return b;
+}
 
+function renderDetails(v) {
+  const body = $("details-body");
+  body.replaceChildren();
+
+  const summary = block("Conditions summary");
+  if (v.guidance.detail) summary.appendChild(el("p", null, v.guidance.detail));
+  else summary.appendChild(el("p", "small", v.guidance.summary || "No assessment available."));
   if (v.guidance.flags.length) {
     const ul = el("ul", "flags");
     for (const f of v.guidance.flags) {
@@ -138,53 +180,93 @@ function renderSummary(v, ctx) {
       li.appendChild(el("span", null, f.message));
       ul.appendChild(li);
     }
-    s.appendChild(ul);
+    summary.appendChild(ul);
   }
+  body.appendChild(summary);
 
+  const source = block("Source and limits");
   if (v.wind) {
-    const d = el("details");
-    d.appendChild(el("summary", null, "View observation details"));
-    const block = el("div", "block");
-    block.appendChild(el("p", "strong", `${v.wind.big}, ${v.wind.sub}`));
-    block.appendChild(el("p", null, v.wind.directionShort));
+    source.appendChild(el("p", null, `${v.wind.source}, ${v.wind.sourceSub}`));
     const ul = el("ul", "stations");
     for (const line of v.wind.stations) ul.appendChild(el("li", "small", line));
-    block.appendChild(ul);
+    source.appendChild(ul);
     if (v.wind.observed) {
       const p = el("p", "small", v.wind.observed);
       if (v.wind.stale) p.appendChild(el("span", "tag", "Out of date"));
-      block.appendChild(p);
+      source.appendChild(p);
     }
-    if (v.wind.note) block.appendChild(el("p", "small note", v.wind.note));
-    d.appendChild(block);
-    s.appendChild(d);
+    if (v.wind.note) source.appendChild(el("p", "small note", v.wind.note));
+  } else {
+    source.appendChild(el("p", "small", v.windMessage));
   }
+  if (v.guidance.limitations) source.appendChild(el("p", "small", v.guidance.limitations));
+  if (v.sources.length) source.appendChild(el("p", "small", `Source: ${v.sources.join(", ")}.`));
+  body.appendChild(source);
+
+  const c = v.lightningCard;
+  const lightning = block("Lightning");
+  if (c.kind === "quiet") {
+    lightning.appendChild(el("p", null, `${c.pill}. ${c.text}`));
+    if (c.sub) lightning.appendChild(el("p", "small", c.sub));
+    lightning.appendChild(el("p", "small", "Lightning data can lag by a few minutes."));
+  } else {
+    lightning.appendChild(el("p", "small", c.sub || "See the notice above."));
+  }
+  body.appendChild(lightning);
+
+  body.appendChild(el("p", "small", v.disclaimer));
+  $("details").hidden = false;
 }
 
-function renderLightning(v) {
-  const s = $("lightning");
-  const c = v.lightningCard;
-  s.replaceChildren();
-  s.className = c.kind === "alert" ? "card alert" : c.kind === "unavailable" ? "card unavailable" : "card";
+function renderAboutShort() {
+  const s = $("about");
+  s.replaceChildren(el("p", "small", "For information only. Not safety advice."));
+}
 
-  const head = el("div", "lightning-head");
-  head.appendChild(el("h2", null, "Lightning activity"));
-  head.appendChild(el("span", "lightning-pill", c.pill));
-  s.appendChild(head);
-  s.appendChild(el("p", c.kind === "alert" ? "strong summary" : "summary", c.text));
-  if (c.checked) s.appendChild(el("p", "small", c.checked));
-  if (c.kind !== "quiet") {
-    const link = advisoryLink(v);
-    if (link) s.appendChild(link);
-  } else {
-    s.appendChild(el("p", "advice-note",
-      "Follow official warnings and venue instructions. A lightning-free reading does not mean it is safe to go out."));
+function renderNow(v, ctx) {
+  setNowStatus(null);
+  hideBanner();
+  $("context").textContent = `Conditions at ${ctx.spotName}`;
+  $("updated").textContent = v.updated ? `Updated ${v.updated} SGT` : "";
+  renderLightningAlert(v);
+  renderHeadline(v, ctx);
+  renderDetails(v);
+  renderAboutShort();
+}
+
+// ---------- plan ahead ----------
+function renderForecastBlock() {
+  const wrap = el("div", "forecast");
+  const f = state.forecast;
+  const day = state.plan.days[state.plan.dayIdx];
+  if (f.status === "idle" || f.status === "loading") {
+    wrap.appendChild(el("p", "muted", "Loading forecast..."));
+    return wrap;
   }
+  if (f.status === "error") {
+    wrap.appendChild(el("p", "muted", `Forecast unavailable right now. ${FAIL_CLOSED_NOTE}`));
+    return wrap;
+  }
+  const v = buildForecastView(f.payload, day, state.plan.slot);
+  if (v.state === "none") {
+    wrap.appendChild(el("p", "muted", v.message));
+    return wrap;
+  }
+  wrap.appendChild(el("p", "label", "Forecast"));
+  if (v.headline) wrap.appendChild(el("p", "headline", v.headline));
+  wrap.appendChild(el("span", "pill", v.pill));
+  if (v.windLine) wrap.appendChild(el("p", "windline", v.windLine));
+  if (v.weatherLine) wrap.appendChild(el("p", null, v.weatherLine));
+  if (v.thundery) wrap.appendChild(el("p", "strong", "Thundery showers in the forecast."));
+  if (v.summary) wrap.appendChild(el("p", "summary", v.summary));
+  if (v.stale) wrap.appendChild(el("p", "small", "This forecast is out of date."));
+  if (v.limits) wrap.appendChild(el("p", "small", v.limits));
+  if (v.note) wrap.appendChild(el("p", "small", v.note));
+  return wrap;
 }
 
 function renderPlan() {
   const s = $("plan");
-  const ctx = lastCtx;
   s.replaceChildren();
   s.appendChild(el("h2", null, "Find your Kakis"));
   s.appendChild(el("p", "plan-sub", "When would you like to get on the water?"));
@@ -211,12 +293,13 @@ function renderPlan() {
   }
   s.appendChild(slots);
 
+  s.appendChild(renderForecastBlock());
+
   const day = state.plan.days[state.plan.dayIdx];
   const foot = el("div", "plan-foot");
   const left = el("div");
   left.appendChild(el("p", "summary-line", planSummary(day, state.plan.slot)));
-  left.appendChild(el("p", "small",
-    `Interest only. No booking or equipment reservation. ${formHint(day, state.plan.slot)}`));
+  left.appendChild(el("p", "small", `Interest only. Nothing is booked. ${formHint(day, state.plan.slot)}`));
   foot.appendChild(left);
   const link = el("a", "cta", "I'm interested \u2192");
   link.href = CONFIG.INTEREST_URL;
@@ -224,27 +307,27 @@ function renderPlan() {
   link.rel = "noopener";
   foot.appendChild(link);
   s.appendChild(foot);
-  if (ctx) s.appendChild(el("p", "small", `${ctx.activityName} at ${ctx.spotName}`));
 }
 
-function renderAbout(v) {
-  const s = $("about");
-  s.replaceChildren();
-  if (v.sources.length) s.appendChild(el("p", "small", `Source: ${v.sources.join(", ")}`));
-  s.appendChild(el("p", "small", v.disclaimer));
+function forecastKey() {
+  return `${state.activity?.slug}|${state.spot?.slug}|${state.level}`;
 }
 
-function render(v, ctx) {
-  hideBanner();
-  lastCtx = ctx;
-  $("context").textContent = `Conditions at ${ctx.spotName}`;
-  $("updated").textContent = v.updated ? `Updated ${v.updated} SGT` : "";
-  state.plan.days = upcomingWeekendDays();
-  if (state.plan.dayIdx >= state.plan.days.length) state.plan.dayIdx = 0;
-  renderSummary(v, ctx);
-  renderLightning(v);
+async function loadForecast() {
+  if (!state.activity || !state.spot) return;
+  const key = forecastKey();
+  state.forecast = { key, status: "loading", payload: null };
   renderPlan();
-  renderAbout(v);
+  const res = await getJson(forecastUrl(CONFIG, {
+    spot: state.spot.slug, activity: state.activity.slug, level: state.level,
+  }));
+  if (state.forecast.key !== key) return;   // the selection changed while this was loading
+  state.forecast = res.ok ? { key, status: "ok", payload: res.data } : { key, status: "error", payload: null };
+  renderPlan();
+}
+
+function ensureForecast() {
+  if (state.forecast.key !== forecastKey()) loadForecast();
 }
 
 // ---------- loading ----------
@@ -255,22 +338,26 @@ async function loadConditions() {
   inflight = ctrl;
   const timer = setTimeout(() => ctrl.abort("timeout"), 25000);
   $("updated").textContent = "Loading conditions...";
-  showBanner("Fetching the latest readings. This can take a few seconds.", "info");
+  setNowStatus("Fetching the latest readings. This can take a few seconds.", "info");
   try {
     const res = await fetch(
       conditionsUrl(CONFIG, { spot: state.spot.slug, activity: state.activity.slug, level: state.level }),
       { signal: ctrl.signal, headers: { Accept: "application/json" } },
     );
     if (!res.ok) {
-      showError(errorMessage("http", res.status));
+      clearNow();
+      $("updated").textContent = "";
+      setNowStatus(errorMessage("http", res.status), "error");
       return;
     }
     const payload = await res.json();
-    render(buildView(payload), { activityName: state.activity.name, spotName: state.spot.name });
+    renderNow(buildView(payload), { activityName: state.activity.name, spotName: state.spot.name });
     lastLoad = Date.now();
   } catch (e) {
     if (inflight !== ctrl) return;  // replaced by a newer request
-    showError(errorMessage(ctrl.signal.reason === "timeout" ? "timeout" : "network"));
+    clearNow();
+    $("updated").textContent = "";
+    setNowStatus(errorMessage(ctrl.signal.reason === "timeout" ? "timeout" : "network"), "error");
   } finally {
     clearTimeout(timer);
     if (inflight === ctrl) inflight = null;
@@ -280,38 +367,49 @@ async function loadConditions() {
 async function loadSpots(wantedSpot) {
   const res = await getJson(catalogSpotsUrl(CONFIG, state.activity.slug));
   if (!res.ok) {
-    showError(errorMessage(res.kind ? res.kind : "http", res.status));
+    showFatal(errorMessage(res.kind ? res.kind : "http", res.status));
     return false;
   }
   state.spots = res.data.spots || [];
   state.spot = pickOption(state.spots, wantedSpot);
   fillSelect($("spot"), state.spots, state.spot?.slug);
   if (!state.spot) {
-    showError("No locations are available for this sport yet.", false);
+    showFatal("No locations are available for this sport yet.", false);
     return false;
   }
   return true;
 }
 
+function refreshAll() {
+  updateUrl();
+  state.forecast = { key: null, status: "idle", payload: null };
+  if (state.tab === "plan") ensureForecast();
+  else renderPlan();
+  loadConditions();
+}
+
 async function init() {
   const wanted = selectionFromQuery(location.search);
   state.level = wanted.level;
+  state.plan.days = upcomingDays();
   fillSelect($("level"), LEVELS.map((l) => ({ slug: l, name: LEVEL_LABELS[l] })), state.level);
+  renderAboutShort();
 
   const res = await getJson(catalogActivitiesUrl(CONFIG));
   if (!res.ok) {
-    showError(errorMessage(res.kind ? res.kind : "http", res.status));
+    showFatal(errorMessage(res.kind ? res.kind : "http", res.status));
     return;
   }
   state.activities = res.data.activities || [];
   state.activity = pickOption(state.activities, wanted.activity);
   fillSelect($("sport"), state.activities, state.activity?.slug);
   if (!state.activity) {
-    showError("No sports are available yet.", false);
+    showFatal("No sports are available yet.", false);
     return;
   }
   if (!(await loadSpots(wanted.spot))) return;
-  updateUrl();
+  setTab(wanted.tab);
+  renderPlan();
   await loadConditions();
 }
 
@@ -319,20 +417,19 @@ function setupControls() {
   $("sport").addEventListener("change", async () => {
     state.activity = pickOption(state.activities, $("sport").value);
     if (!(await loadSpots(null))) return;
-    updateUrl();
-    loadConditions();
+    refreshAll();
   });
   $("spot").addEventListener("change", () => {
     state.spot = pickOption(state.spots, $("spot").value);
-    updateUrl();
-    loadConditions();
+    refreshAll();
   });
   $("level").addEventListener("change", () => {
     state.level = $("level").value;
-    updateUrl();
-    loadConditions();
+    refreshAll();
   });
   $("refresh").addEventListener("click", loadConditions);
+  $("tab-now").addEventListener("click", () => setTab("now"));
+  $("tab-plan").addEventListener("click", () => setTab("plan"));
 }
 
 setupControls();

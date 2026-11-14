@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="robots" content="noindex">
 <meta name="theme-color" content="#0D2C5B">
-<title>Make the most of the water | WaterSports Kaki</title>
+<title>WaterSports Kaki &middot; Check conditions</title>
 <link rel="icon" type="image/png" href="favicon.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@800;900&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@800;900&family=Caveat:wght@600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -20,9 +20,8 @@
 </header>
 <main>
   <section class="hero">
-    <p class="eyebrow">Your next Water Day</p>
-    <h1>Make the most of the water.</h1>
-    <p class="lede">Check the conditions. Find your people. Make a plan.</p>
+    <h1>Learn watersports.<br><span class="handwrite">Find your kakis.</span></h1>
+    <p class="lede">Know when to go, find people to go with, and discover what to try next.</p>
   </section>
 
   <section class="panel">
@@ -34,23 +33,32 @@
     </div>
   </section>
 
-  <div class="section-head">
-    <h2 id="context" class="section-title">Conditions</h2>
-    <p class="live-tag">Right now &middot; live NEA data</p>
+  <h2 id="context" class="section-title">Conditions</h2>
+  <div class="tabs" role="tablist">
+    <button id="tab-now" class="tab on" type="button" role="tab" aria-selected="true">Right now</button>
+    <button id="tab-plan" class="tab" type="button" role="tab" aria-selected="false">Plan ahead</button>
   </div>
-  <p class="updated-row">
-    <span id="updated" class="muted" aria-live="polite"></span>
-    <button id="refresh" class="link-btn" type="button" aria-label="Refresh conditions">&#8635; Refresh</button>
-  </p>
   <div id="banner" role="status" aria-live="polite" hidden></div>
   <noscript><p class="banner error">This page needs JavaScript. Check official advisories at weather.gov.sg.</p></noscript>
 
-  <div class="grid">
-    <section id="guidance" class="card"></section>
-    <section id="lightning" class="card"></section>
+  <div id="pane-now">
+    <p class="updated-row">
+      <span id="updated" class="muted" aria-live="polite"></span>
+      <button id="refresh" class="link-btn" type="button" aria-label="Refresh conditions">&#8635; Refresh</button>
+    </p>
+    <div id="now-status" role="status" aria-live="polite" hidden></div>
+    <section id="lightning-alert" hidden></section>
+    <section id="headline" class="card"></section>
+    <details id="details" class="card" hidden>
+      <summary>Details</summary>
+      <div id="details-body"></div>
+    </details>
   </div>
 
-  <section id="plan" class="card"></section>
+  <div id="pane-plan" hidden>
+    <section id="plan" class="card"></section>
+  </div>
+
   <section id="about" class="plain"></section>
 </main>
 <script type="module" src="app.js"></script>

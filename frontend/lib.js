@@ -11,9 +11,9 @@ export const LEVEL_LABELS = {
 export const STATUS_LABELS = {
   flagged: "Flags raised",
   unavailable: "Assessment unavailable",
-  outside_reference_range: "Outside WSK reference range",
-  within_reference_range: "Within WSK reference range",
-  inconclusive: "Inconclusive: nearby stations disagree",
+  outside_reference_range: "Outside reference range",
+  within_reference_range: "Within reference range",
+  inconclusive: "Stations disagree",
   wind_not_applicable: "Wind limits not applicable",
   not_published: "Awaiting instructor review",
 };
@@ -104,9 +104,19 @@ export function conditionsUrl(config, { spot, activity, level }) {
   return `${base(config)}/api/spots/${encodeURIComponent(spot)}/conditions?${q}`;
 }
 
+export function forecastUrl(config, { spot, activity, level }) {
+  const q = new URLSearchParams({ activity, level });
+  return `${base(config)}/api/spots/${encodeURIComponent(spot)}/forecast?${q}`;
+}
+
 export function selectionFromQuery(search) {
   const q = new URLSearchParams(search);
-  return { activity: q.get("activity"), spot: q.get("spot"), level: levelFromQuery(search) };
+  return {
+    activity: q.get("activity"),
+    spot: q.get("spot"),
+    level: levelFromQuery(search),
+    tab: q.get("tab") === "plan" ? "plan" : "now",
+  };
 }
 
 // Use the wanted option if it exists, otherwise the first one. Never invent a value.
@@ -136,11 +146,13 @@ const ASSESSED_STATUSES = new Set(["within", "outside", "inconclusive"]);
 
 export function pillLabel(g) {
   if (g.status === "not_published") return STATUS_LABELS.not_published;
-  const range = g.review_status === "unreviewed" ? "provisional range" : "WSK reference range";
-  const partial = !(g.scope?.direction && g.scope?.gusts);
+  const range = g.review_status === "unreviewed" ? "provisional range" : "reference range";
   switch (g.wind_status) {
-    case "within": return partial ? `Wind speed only: within ${range}` : `Within ${range}`;
-    case "outside": return `Outside ${range}`;
+    case "within": return `Within ${range}`;
+    case "outside":
+      return g.wind_position === "below" ? `Below ${range}`
+           : g.wind_position === "above" ? `Above ${range}`
+           : `Outside ${range}`;
     case "inconclusive": return STATUS_LABELS.inconclusive;
     case "not_applicable": return STATUS_LABELS.wind_not_applicable;
     case "unavailable": return STATUS_LABELS.unavailable;
@@ -160,19 +172,26 @@ function provisional(text, g) {
   return g.review_status === "unreviewed" ? text.replace(/WSK reference range/g, "provisional reference range") : text;
 }
 
+// A short line, only where the pill and the figures do not already say it.
 function guidanceSummary(g) {
-  if (g.status === "not_published") return g.summary || "Awaiting instructor review.";
+  if (g.status === "not_published") return "Guidance awaits instructor review.";
   switch (g.wind_status) {
     case "within":
-    case "outside":
-    case "inconclusive": return provisional(g.wind_summary || g.summary || "Assessment unavailable.", g);
-    case "not_applicable": return "Wind limits are not part of this activity's assessment.";
+    case "outside": return null;
+    case "inconclusive": return "Nearby stations fall on both sides of the range.";
+    case "not_applicable": return "Wind limits do not apply to this activity.";
     case "unavailable": {
       const why = (g.wind_reasons || []).join("; ");
       return `Wind assessment unavailable${why ? `: ${why}` : ""}. ${FAIL_CLOSED_NOTE}`;
     }
     default: return g.summary || "Assessment unavailable.";
   }
+}
+
+// The full sentence, kept for "View observation details".
+function guidanceDetail(g) {
+  if (!ASSESSED_STATUSES.has(g.wind_status)) return null;
+  return provisional(g.wind_summary || g.summary || "", g) || null;
 }
 
 // One alert, shown once, at the top. Lightning data that is missing or old is also an alert.
@@ -185,11 +204,11 @@ export function buildAlert(li) {
   }
   const n = li.strikes_within_radius ?? 0;
   if (n > 0) {
-    const near = li.nearest_km != null ? ` Nearest strike: ${li.nearest_km} km away.` : "";
+    const near = li.nearest_km != null ? ` Nearest: ${li.nearest_km} km.` : "";
     return {
       kind: "lightning",
       title: "Lightning detected nearby",
-      text: `${n} strike${n === 1 ? "" : "s"} within ${li.radius_km} km in the last ${li.lookback_min} minutes.${near} ` +
+      text: `${n} strike${n === 1 ? "" : "s"} within ${li.radius_km} km in the last ${li.lookback_min} min.${near} ` +
             "Follow official advisories and your operator's procedures.",
     };
   }
@@ -219,25 +238,15 @@ function windHeadline(wind) {
   return lo === hi ? lo : `${lo} to ${hi.toLowerCase()}`;
 }
 
+// Station details are already in the "Source" figure, so this only says what was not covered.
 function limitationsText(p, g) {
   const parts = [];
-  const rs = p?.observations?.wind?.readings || [];
-  const ds = rs.map((r) => r.distance_km).filter((d) => d != null);
-  if (rs.length === 1) {
-    parts.push(ds.length ? `Based on wind readings from a station ${ds[0]} km away.`
-                         : "Based on wind readings from a nearby station.");
-  } else if (rs.length > 1) {
-    parts.push(ds.length
-      ? `Based on wind readings from ${rs.length} nearby stations, ${Math.min(...ds)} to ${Math.max(...ds)} km away.`
-      : `Based on wind readings from ${rs.length} nearby stations.`);
-  }
   const na = notAssessed(g);
-  if (na.length) {
-    const list = na.join(" and ");
-    parts.push(`${list.charAt(0).toUpperCase()}${list.slice(1)} ${na.length === 1 ? "is" : "are"} not assessed.`);
-  }
-  if (g.review_status === "unreviewed" && g.status !== "not_published") parts.push("Reference ranges are provisional.");
-  return parts.length ? parts.join(" ") : null;
+  if (na.length === 2) parts.push("Wind speed only", "Gusts and shore-relative direction not assessed");
+  else if (na[0] === "gusts") parts.push("Gusts not assessed");
+  else if (na.length === 1) parts.push("Shore-relative direction not assessed");
+  if (g.review_status === "unreviewed" && g.status !== "not_published") parts.push("Ranges provisional");
+  return parts.length ? `${parts.join(". ")}.` : null;
 }
 
 // ---------- planner: upcoming weekend days and AM or PM ----------
@@ -247,24 +256,24 @@ const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Se
 // AM and PM only, so a small number of people are not spread across many time cells.
 export const SLOTS = [{ key: "AM", sub: "Morning" }, { key: "PM", sub: "Afternoon" }];
 
-// The next weekend days after today, by the Singapore calendar date.
-export function upcomingWeekendDays(now = new Date(), count = 4) {
+// The next days after today, by the Singapore calendar date. NEA's outlook reaches 4 days ahead,
+// so a rolling week lets people check the days a forecast exists for, and still see the weekend.
+export function upcomingDays(now = new Date(), count = 7) {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Singapore", year: "numeric", month: "2-digit", day: "2-digit",
   }).formatToParts(now);
   const get = (t) => Number(parts.find((p) => p.type === t).value);
   const y = get("year"), m = get("month"), d = get("day");
   const out = [];
-  for (let i = 1; out.length < count && i <= 30; i++) {
+  for (let i = 1; i <= count; i++) {
     const dt = new Date(Date.UTC(y, m - 1, d + i));
     const wd = dt.getUTCDay();
-    if (wd === 6 || wd === 0) {
-      out.push({
-        iso: dt.toISOString().slice(0, 10),
-        short: DAY_NAMES[wd],
-        label: `${DAY_NAMES[wd]}, ${dt.getUTCDate()} ${MONTH_NAMES[dt.getUTCMonth()]}`,
-      });
-    }
+    out.push({
+      iso: dt.toISOString().slice(0, 10),
+      short: DAY_NAMES[wd],
+      weekend: wd === 6 || wd === 0,
+      label: `${DAY_NAMES[wd]}, ${dt.getUTCDate()} ${MONTH_NAMES[dt.getUTCMonth()]}`,
+    });
   }
   return out;
 }
@@ -273,24 +282,25 @@ export function planSummary(day, slotKey) {
   return day ? `${day.label} \u00b7 ${slotKey}` : "";
 }
 
-// The early-access form lists availability as "Sat AM", "Sat PM", "Sun AM", "Sun PM".
+// The early-access form lists "Sat AM", "Sat PM", "Sun AM", "Sun PM" and weekday evenings.
 export function formHint(day, slotKey) {
-  return day ? `In the form, tick ${day.short} ${slotKey}.` : "";
+  if (!day) return "";
+  return day.weekend ? `In the form, tick ${day.short} ${slotKey}.` : "The form lists weekends and weekday evenings.";
 }
 
 function lightningCard(li) {
   const a = buildAlert(li);
   if (a && a.kind === "lightning") {
-    return { kind: "alert", pill: a.title, text: a.text, checked: withAge("Checked", li.fetched_at, li.age_min) };
+    return { kind: "alert", pill: a.title, text: a.text, sub: withAge("Checked", li.fetched_at, li.age_min) };
   }
-  if (a) return { kind: "unavailable", pill: a.title, text: a.text, checked: null };
-  const near = li.nearest_km != null ? ` Nearest strike observed: ${li.nearest_km} km away.` : "";
+  if (a) return { kind: "unavailable", pill: a.title, text: a.text, sub: null };
+  const checked = withAge("Checked", li.fetched_at, li.age_min);
+  const near = li.nearest_km != null ? `Nearest strike: ${li.nearest_km} km.` : null;
   return {
     kind: "quiet",
     pill: "No strikes observed nearby",
-    text: `No strikes observed within ${li.radius_km} km in the last ${li.lookback_min} minutes. ` +
-          `This is not an all-clear. Data may be delayed.${near}`,
-    checked: withAge("Checked", li.fetched_at, li.age_min),
+    text: `No strikes within ${li.radius_km} km in the last ${li.lookback_min} min. This is not an all-clear.`,
+    sub: [near, checked ? `${checked}.` : null].filter(Boolean).join(" ") || null,
   };
 }
 
@@ -329,6 +339,7 @@ export function buildView(p) {
     levelLabel: LEVEL_LABELS[p?.level] ?? String(p?.level || ""),
     updated: formatTimeSGT(p?.generated_at),
     headline: wind ? windHeadline(wind) : null,
+    windLine: windView ? `${windView.big} \u00b7 ${windView.directionShort}` : null,
     wind: windView,
     windMessage: windView ? null : (p?.observations?.wind_message || "Wind data unavailable."),
     lightningCard: lightningCard(li),
@@ -336,6 +347,7 @@ export function buildView(p) {
       status: g.status || "unavailable",
       statusLabel: pillLabel(g),
       summary: guidanceSummary(g),
+      detail: guidanceDetail(g),
       limitations: limitationsText(p, g),
       flags: (g.flags || [])
         .filter((f) => !HIDDEN_FLAG_CODES.has(f.code))
@@ -348,5 +360,41 @@ export function buildView(p) {
     sources: Array.isArray(p?.sources) ? p.sources : [],
     advisories: (p?.official_advisories || []).filter((a) => isSafeHttpsUrl(a.url)),
     disclaimer: p?.disclaimer || DEFAULT_DISCLAIMER,
+  };
+}
+
+// The plan-ahead view for one chosen day and AM or PM, from the /forecast response.
+export function buildForecastView(payload, day, slotKey) {
+  if (!payload || payload.available !== true) {
+    return { state: "none", message: "Forecast unavailable right now." };
+  }
+  if (!day) return { state: "none", message: "Choose a day." };
+  const f = (payload.days || []).find((d) => d.date === day.iso);
+  if (!f) {
+    return {
+      state: "none",
+      message: `No forecast for ${day.label} yet. NEA's outlook covers the next ${payload.horizon_days ?? 4} days.`,
+    };
+  }
+  const g = f.guidance || {};
+  const w = f.wind;
+  const slot = f.slots?.[slotKey] || null;
+  const sub = SLOTS.find((x) => x.key === slotKey)?.sub ?? slotKey;
+  const range = w
+    ? (w.knots_low === w.knots_high ? `${kn(w.knots_low)} kn` : `${kn(w.knots_low)} to ${kn(w.knots_high)} kn`)
+    : null;
+  return {
+    state: "ok",
+    headline: w ? windHeadline({ knots_min: w.knots_low, knots_max: w.knots_high }) : null,
+    pill: g.wind_status === "inconclusive" ? "Spans the range" : pillLabel(g),
+    windLine: range ? `${range}${w.direction ? ` \u00b7 From ${w.direction}` : ""}` : null,
+    weatherLine: slot?.text ? `${sub}: ${slot.text}` : null,
+    thundery: !!slot?.thundery,
+    summary: g.wind_status === "inconclusive"
+      ? "The forecast wind range spans the reference range."
+      : guidanceSummary(g),
+    limits: limitationsText(null, g),
+    stale: !!f.stale,
+    note: payload.note || null,
   };
 }
