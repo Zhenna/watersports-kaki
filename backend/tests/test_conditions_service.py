@@ -260,3 +260,94 @@ class TestPayloadWindFields(unittest.TestCase):
         self.assertIsNone(g["wind_status"])
         self.assertIsNone(g["wind_summary"])
         self.assertEqual(g["scope"], {})
+
+
+def three_station_feed(ts):
+    return {"timestamp": ts, "readings": [
+        {"station_id": "A", "station_name": "Alpha", "value_kmh": 5.7, "lat": 1.3300, "lng": 103.9100},   # about 3 km
+        {"station_id": "B", "station_name": "Bravo", "value_kmh": 10.9, "lat": 1.3500, "lng": 103.9300},  # about 5.5 km
+        {"station_id": "C", "station_name": "Charlie", "value_kmh": 7.0, "lat": 1.3600, "lng": 103.9400}, # about 7 km
+        {"station_id": "D", "station_name": "Delta", "value_kmh": 12.0, "lat": 1.3900, "lng": 103.9700},  # about 11 km
+        {"station_id": "E", "station_name": "Echo", "value_kmh": 4.0, "lat": 1.4500, "lng": 103.8200},    # far
+    ]}
+
+
+class TestSeveralStationSelection(unittest.TestCase):
+    def test_up_to_three_nearest_within_the_limit(self):
+        from services.conditions_service import nearby_stations
+        got = nearby_stations(three_station_feed(iso(3))["readings"], *SPOT, "value_kmh")
+        self.assertEqual([s["station_id"] for s in got], ["A", "B", "C"])
+        self.assertTrue(all(s["distance_km"] <= 10 for s in got))
+
+    def test_limit_and_count_are_adjustable(self):
+        from services.conditions_service import nearby_stations
+        r = three_station_feed(iso(3))["readings"]
+        self.assertEqual(len(nearby_stations(r, *SPOT, "value_kmh", max_km=4)), 1)
+        self.assertEqual(len(nearby_stations(r, *SPOT, "value_kmh", max_km=50, max_count=5)), 5)
+
+    def test_mapped_station_comes_first_even_when_beyond_the_limit(self):
+        from services.conditions_service import nearby_stations
+        r = three_station_feed(iso(3))["readings"]
+        got = nearby_stations(r, *SPOT, "value_kmh", preferred_id="E")
+        self.assertEqual(got[0]["station_id"], "E")
+        self.assertEqual(got[0]["selection"], "mapped")
+        self.assertEqual(len(got), 3)
+
+    def test_invalid_values_are_skipped(self):
+        from services.conditions_service import nearby_stations
+        r = three_station_feed(iso(3))["readings"]
+        r[0]["value_kmh"] = float("nan")
+        got = nearby_stations(r, *SPOT, "value_kmh")
+        self.assertEqual([s["station_id"] for s in got], ["B", "C"])
+
+    def test_nothing_within_the_limit_gives_no_wind_and_says_why(self):
+        from services.conditions_service import build_payload
+        far = {"timestamp": iso(3), "readings": [
+            {"station_id": "E", "station_name": "Echo", "value_kmh": 4.0, "lat": 1.45, "lng": 103.82}]}
+        obs, meta = build_observation(far, dir_feed(), lightning_feed(), *SPOT, now=NOW)
+        self.assertIsNone(obs.wind_kmh)
+        a = evaluate("windsurf", "beginner", obs, RULES)
+        p = build_payload({"slug": "x"}, "windsurf", "beginner", obs, meta, a, True, now=NOW)
+        self.assertIsNone(p["observations"]["wind"])
+        self.assertIn("No wind-reporting station within 10 km", p["observations"]["wind_message"])
+
+    def test_a_failed_wind_feed_gives_no_message_about_distance(self):
+        from services.conditions_service import build_payload
+        obs, meta = build_observation(None, dir_feed(), lightning_feed(), *SPOT, now=NOW)
+        a = evaluate("windsurf", "beginner", obs, RULES)
+        p = build_payload({"slug": "x"}, "windsurf", "beginner", obs, meta, a, True, now=NOW)
+        self.assertIsNone(p["observations"]["wind_message"])
+
+
+class TestSeveralStationPayload(unittest.TestCase):
+    def payload(self):
+        from services.conditions_service import build_payload
+        obs, meta = build_observation(three_station_feed(iso(3)), dir_feed(), lightning_feed(), *SPOT, now=NOW)
+        a = evaluate("windsurf", "beginner", obs, RULES)
+        return build_payload({"slug": "x"}, "windsurf", "beginner", obs, meta, a, True, now=NOW), obs
+
+    def test_the_straddling_stations_are_inconclusive(self):
+        p, _ = self.payload()
+        self.assertEqual(p["guidance"]["wind_status"], "inconclusive")
+
+    def test_payload_lists_every_station_with_a_range(self):
+        p, _ = self.payload()
+        w = p["observations"]["wind"]
+        self.assertEqual([r["station_name"] for r in w["readings"]], ["Alpha", "Bravo", "Charlie"])
+        self.assertEqual(w["kmh_min"], 5.7)
+        self.assertEqual(w["kmh_max"], 10.9)
+        self.assertEqual(w["knots_min"], 3.1)
+        self.assertEqual(w["knots_max"], 5.9)
+        self.assertEqual(w["readings"][0]["knots"], 3.1)
+
+    def test_primary_station_is_the_nearest(self):
+        p, obs = self.payload()
+        self.assertEqual(p["observations"]["wind"]["station"]["station_name"], "Alpha")
+        self.assertEqual(obs.wind_kmh, 5.7)
+
+    def test_note_mentions_all_stations_and_that_they_can_disagree(self):
+        p, _ = self.payload()
+        note = p["observations"]["wind"]["note"]
+        self.assertIn("3 nearby stations", note)
+        self.assertIn("Alpha, Bravo, Charlie", note)
+        self.assertIn("can disagree", note)

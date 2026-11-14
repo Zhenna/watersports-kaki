@@ -38,6 +38,7 @@ STATUS_FLAGGED = "flagged"
 STATUS_OUTSIDE = "outside_reference_range"
 STATUS_WITHIN = "within_reference_range"
 STATUS_NOT_APPLICABLE = "wind_not_applicable"
+STATUS_INCONCLUSIVE = "inconclusive"
 
 _SEVERITY_ORDER = {"hazard": 0, "advise_against": 1, "caution": 2, "info": 3}
 
@@ -71,6 +72,12 @@ class LightningObservation:
 
 
 @dataclass
+class WindReading:
+    """One station's wind speed. Several nearby stations can disagree."""
+    kmh: float
+
+
+@dataclass
 class Observation:
     wind_kmh: Optional[float] = None
     gust_kmh: Optional[float] = None
@@ -78,6 +85,8 @@ class Observation:
     wind_age_min: Optional[float] = None
     # None means the lightning feed is unavailable. It must never be read as "none".
     lightning: Optional[LightningObservation] = None
+    # Readings from nearby stations. If empty, wind_kmh is treated as the single reading.
+    wind_readings: list = field(default_factory=list)
 
 
 @dataclass
@@ -151,6 +160,12 @@ def _find_rule(rules: list, slug: str, level: str, condition_type: str) -> Optio
     return None
 
 
+def _wind_text(lo: float, hi: float) -> str:
+    if round(lo, 1) == round(hi, 1):
+        return f"{lo:.1f} km/h ({kmh_to_knots(lo):.1f} knots)"
+    return f"{lo:.1f} to {hi:.1f} km/h ({kmh_to_knots(lo):.1f} to {kmh_to_knots(hi):.1f} knots)"
+
+
 def evaluate(
     activity_slug: str,
     level: str,
@@ -169,6 +184,12 @@ def evaluate(
     wind_reasons: list = []
     direction_assessed = False
     gusts_assessed = False
+    mixed_note: Optional[str] = None
+    readings = (
+        [r.kmh for r in obs.wind_readings if _valid(r.kmh)]
+        if obs.wind_readings
+        else ([obs.wind_kmh] if _valid(obs.wind_kmh) else [])
+    )
     inputs: dict = {
         "activity": activity_slug,
         "level": level,
@@ -177,6 +198,7 @@ def evaluate(
         "gust_kmh": obs.gust_kmh if _valid(obs.gust_kmh) else None,
         "wind_from_deg": obs.wind_from_deg if _valid(obs.wind_from_deg) else None,
         "wind_age_min": obs.wind_age_min,
+        "wind_readings_kmh": readings,
     }
 
     # ---- lightning (always applies, any activity) ------------------------
@@ -227,7 +249,7 @@ def evaluate(
                     {"rule_version": rule.rule_version},
                 ))
 
-        if not _valid(obs.wind_kmh):
+        if not readings:
             wind_reasons.append("wind data unavailable")
             reasons.append("wind data unavailable")
         elif not _valid(obs.wind_age_min) or obs.wind_age_min > WIND_STALE_MIN:
@@ -235,23 +257,26 @@ def evaluate(
             reasons.append("wind data is out of date")
         elif rule is not None:
             lo, hi = rule.min_value, rule.max_value
-            w = obs.wind_kmh
-            w_txt = f"{w:.1f} km/h ({kmh_to_knots(w):.1f} knots)"
+            multi = len(readings) > 1
+            w_txt = _wind_text(min(readings), max(readings))
             rng = f"{lo:g} to {hi:g} km/h" if lo is not None and hi is not None else "no stated range"
-            if hi is not None and w > hi:
-                outside_note = (
-                    f"Wind is {w_txt}, above the WSK reference range of {rng} for "
-                    f"{level.replace('_', ' ')} {activity_slug}."
-                )
-            elif lo is not None and w < lo:
-                outside_note = (
-                    f"Wind is {w_txt}, below the WSK reference range of {rng} for "
-                    f"{level.replace('_', ' ')} {activity_slug}."
-                )
+            subject = "Nearby stations report" if multi else "Wind is"
+            all_ = "all " if multi else ""
+            lvl = f"{level.replace('_', ' ')} {activity_slug}"
+            kinds = {
+                "above" if (hi is not None and r > hi) else "below" if (lo is not None and r < lo) else "within"
+                for r in readings
+            }
+            if kinds == {"above"}:
+                outside_note = f"{subject} {w_txt}, {all_}above the WSK reference range of {rng} for {lvl}."
+            elif kinds == {"below"}:
+                outside_note = f"{subject} {w_txt}, {all_}below the WSK reference range of {rng} for {lvl}."
+            elif kinds == {"within"}:
+                within_note = f"{subject} {w_txt}, {all_}within the WSK reference range of {rng} for {lvl}."
             else:
-                within_note = (
-                    f"Wind is {w_txt}, within the WSK reference range of {rng} for "
-                    f"{level.replace('_', ' ')} {activity_slug}."
+                mixed_note = (
+                    f"{subject} {w_txt}, which straddles the WSK reference range of {rng} for {lvl}, "
+                    "so this assessment is inconclusive."
                 )
 
             # gusts: supplementary, and never silently treated as benign
@@ -315,6 +340,9 @@ def evaluate(
     wind_summary: Optional[str] = None
     if not wind_dependent:
         wind_status = "not_applicable"
+    elif mixed_note:
+        wind_status = "inconclusive"
+        wind_summary = mixed_note + " This is not a safety assessment."
     elif outside_note:
         wind_status = "outside"
         wind_summary = outside_note + " This is not a safety assessment."
@@ -342,6 +370,9 @@ def evaluate(
             "Wind limits are not part of this activity's assessment. Lightning observations "
             "are shown with the flags. This is not a safety clearance."
         )
+    elif mixed_note:
+        status = STATUS_INCONCLUSIVE
+        summary = mixed_note + " This is not a safety assessment."
     elif outside_note:
         status = STATUS_OUTSIDE
         summary = outside_note + " This is not a safety assessment."

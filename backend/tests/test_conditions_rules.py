@@ -6,9 +6,10 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from services.conditions_rules import (  # noqa: E402
-    Observation, LightningObservation, Rule, WindSector,
+    Observation, LightningObservation, Rule, WindSector, WindReading,
     evaluate, classify_direction,
     STATUS_UNAVAILABLE, STATUS_FLAGGED, STATUS_OUTSIDE, STATUS_WITHIN, STATUS_NOT_APPLICABLE,
+    STATUS_INCONCLUSIVE,
 )
 
 REVIEWED = dict(rule_version="v1", reviewed_by="Instructor", reviewed_at="2026-11-10")
@@ -215,6 +216,62 @@ class TestWindResultAndScope(unittest.TestCase):
         a = evaluate("windsurf", "beginner", obs(wind=40), RULES, sectors=SECTORS)
         self.assertEqual(a.wind_status, "outside")
         self.assertIn("above", a.wind_summary)
+
+
+def multi(*kmh, age=3):
+    return Observation(wind_kmh=kmh[0], wind_readings=[WindReading(k) for k in kmh],
+                       wind_from_deg=180, wind_age_min=age, lightning=calm_lightning())
+
+
+class TestSeveralStations(unittest.TestCase):
+    def test_all_stations_within_the_range(self):
+        a = evaluate("windsurf", "beginner", multi(9, 12, 15), RULES, sectors=SECTORS)
+        self.assertEqual(a.status, STATUS_WITHIN)
+        self.assertEqual(a.wind_status, "within")
+        self.assertIn("Nearby stations report 9.0 to 15.0 km/h", a.wind_summary)
+        self.assertIn("all within", a.wind_summary)
+
+    def test_all_stations_below(self):
+        a = evaluate("windsurf", "beginner", multi(2, 5), RULES, sectors=SECTORS)
+        self.assertEqual(a.status, STATUS_OUTSIDE)
+        self.assertIn("all below", a.wind_summary)
+
+    def test_all_stations_above(self):
+        a = evaluate("windsurf", "beginner", multi(25, 30), RULES, sectors=SECTORS)
+        self.assertEqual(a.status, STATUS_OUTSIDE)
+        self.assertIn("all above", a.wind_summary)
+
+    def test_stations_that_straddle_the_range_are_inconclusive(self):
+        a = evaluate("windsurf", "beginner", multi(5.7, 10.9), RULES, sectors=SECTORS)
+        self.assertEqual(a.status, STATUS_INCONCLUSIVE)
+        self.assertEqual(a.wind_status, "inconclusive")
+        self.assertIn("straddles", a.wind_summary)
+        self.assertIn("inconclusive", a.wind_summary)
+        self.assertFalse(a.scope["wind_speed"])
+
+    def test_inconclusive_wind_is_not_a_favourable_result(self):
+        a = evaluate("windsurf", "beginner", multi(5.7, 10.9), RULES, sectors=SECTORS)
+        self.assertNotIn(a.status, (STATUS_WITHIN,))
+
+    def test_a_stale_reading_is_unavailable_even_with_several_stations(self):
+        a = evaluate("windsurf", "beginner", multi(9, 12, age=30), RULES, sectors=SECTORS)
+        self.assertEqual(a.status, STATUS_UNAVAILABLE)
+
+    def test_lightning_still_flags_with_several_stations(self):
+        o = multi(9, 12)
+        o.lightning = calm_lightning(strikes=2, nearest=6.0)
+        a = evaluate("windsurf", "beginner", o, RULES, sectors=SECTORS)
+        self.assertEqual(a.status, STATUS_FLAGGED)
+        self.assertEqual(a.wind_status, "within")
+
+    def test_a_single_reading_keeps_the_original_wording(self):
+        a = evaluate("windsurf", "beginner", obs(wind=12), RULES, sectors=SECTORS)
+        self.assertIn("Wind is 12.0 km/h", a.wind_summary)
+        self.assertNotIn("Nearby stations", a.wind_summary)
+
+    def test_readings_are_recorded_in_the_inputs(self):
+        a = evaluate("windsurf", "beginner", multi(9, 12), RULES, sectors=SECTORS)
+        self.assertEqual(a.inputs["wind_readings_kmh"], [9, 12])
 
 
 class TestReviewAndWording(unittest.TestCase):

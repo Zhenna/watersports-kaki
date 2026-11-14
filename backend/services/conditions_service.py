@@ -18,6 +18,7 @@ from typing import Optional
 from services.conditions_rules import (
     Observation,
     LightningObservation,
+    WindReading,
     DEFAULT_LIGHTNING_RADIUS_KM,
     DEFAULT_LIGHTNING_LOOKBACK_MIN,
     KMH_PER_KNOT,
@@ -36,6 +37,10 @@ FACTUAL_FLAG_CODES = {"lightning_observed", "no_strikes_observed"}
 
 EARTH_RADIUS_KM = 6371.0088
 SGT = timezone(timedelta(hours=8))
+
+# Defaults to confirm: how far from the spot a wind station may be, and how many to use.
+WIND_STATION_MAX_KM = 10.0
+WIND_STATION_MAX_COUNT = 3
 
 
 def _finite(x) -> bool:
@@ -102,6 +107,31 @@ def nearest_station(readings, lat: float, lng: float, value_key: str,
     return preferred or best
 
 
+def nearby_stations(readings, lat: float, lng: float, value_key: str,
+                    max_km: float = WIND_STATION_MAX_KM,
+                    max_count: int = WIND_STATION_MAX_COUNT,
+                    preferred_id: Optional[str] = None) -> list:
+    """Up to max_count stations to use for a spot, nearest first. A mapped station comes
+    first and is allowed even beyond max_km. Stations without a finite value are skipped,
+    and others need coordinates and to be within max_km."""
+    mapped, others = [], []
+    for r in readings or []:
+        v = r.get(value_key)
+        if not _finite(v):
+            continue
+        rl, rg = r.get("lat"), r.get("lng")
+        has_coords = _finite(rl) and _finite(rg)
+        d = haversine_km(lat, lng, rl, rg) if has_coords else None
+        cand = {"station_id": r.get("station_id"), "station_name": r.get("station_name"),
+                "value": v, "distance_km": d, "selection": "nearest"}
+        if preferred_id and r.get("station_id") == preferred_id:
+            mapped.append(dict(cand, selection="mapped"))
+        elif d is not None and d <= max_km:
+            others.append(cand)
+    others.sort(key=lambda c: c["distance_km"])
+    return (mapped + others)[:max_count]
+
+
 def lightning_summary(
     strikes,
     lat: float,
@@ -135,12 +165,17 @@ def build_observation(
     radius_km: float = DEFAULT_LIGHTNING_RADIUS_KM,
     lookback_min: int = DEFAULT_LIGHTNING_LOOKBACK_MIN,
     preferred_station_id: Optional[str] = None,
+    max_station_km: float = WIND_STATION_MAX_KM,
+    max_stations: int = WIND_STATION_MAX_COUNT,
 ):
-    """Return (Observation, meta). Any feed passed as None stays unavailable."""
-    w = (nearest_station(wind["readings"], lat, lng, "value_kmh", preferred_station_id)
-         if wind else None)
-    d = (nearest_station(direction["readings"], lat, lng, "degrees", preferred_station_id)
-         if direction else None)
+    """Return (Observation, meta). Any feed passed as None stays unavailable. Wind uses up to
+    max_stations nearby stations, so a single unrepresentative station cannot decide the result."""
+    w_list = (nearby_stations(wind["readings"], lat, lng, "value_kmh", max_station_km,
+                              max_stations, preferred_station_id) if wind else [])
+    d_list = (nearby_stations(direction["readings"], lat, lng, "degrees", max_station_km,
+                              1, preferred_station_id) if direction else [])
+    primary = w_list[0] if w_list else None
+    d = d_list[0] if d_list else None
     wind_age = age_minutes(wind.get("timestamp"), now) if wind else None
 
     li = None
@@ -151,7 +186,8 @@ def build_observation(
         )
 
     obs = Observation(
-        wind_kmh=w["value"] if w else None,
+        wind_kmh=primary["value"] if primary else None,
+        wind_readings=[WindReading(kmh=s["value"]) for s in w_list],
         gust_kmh=None,  # no gust feed yet (provider decision C3)
         wind_from_deg=d["value"] if d else None,
         wind_age_min=wind_age,
@@ -169,8 +205,11 @@ def build_observation(
         }
 
     meta = {
-        "wind_station": _station_meta(w),
+        "wind_station": _station_meta(primary),
+        "wind_stations": [dict(_station_meta(s), kmh=round(s["value"], 1)) for s in w_list],
         "direction_station": _station_meta(d),
+        "wind_feed_ok": wind is not None,
+        "max_station_km": max_station_km,
         "wind_observed_at": wind.get("timestamp") if wind else None,
         "lightning_fetched_at": lightning.get("timestamp") if lightning else None,
     }
@@ -184,17 +223,25 @@ def _to_sgt(ts):
 
 
 def _proxy_note(meta: dict) -> Optional[str]:
-    s = meta.get("wind_station")
-    if not s:
+    stations = meta.get("wind_stations") or []
+    if not stations:
         return None
-    dist = s.get("distance_km")
-    if dist is not None and dist <= 1:
-        return None
-    how = ("the station mapped to this spot" if s.get("selection") == "mapped"
-           else "the nearest station that reports wind")
-    where = f"{dist} km from this spot" if dist is not None else "at an unknown distance from this spot"
-    return (f"Wind readings come from {s['station_name']}, {where} ({how}). "
-            "Conditions at the spot can differ.")
+    if len(stations) == 1:
+        s = stations[0]
+        dist = s.get("distance_km")
+        if dist is not None and dist <= 1:
+            return None
+        how = ("the station mapped to this spot" if s.get("selection") == "mapped"
+               else "the nearest station that reports wind")
+        where = f"{dist} km from this spot" if dist is not None else "at an unknown distance from this spot"
+        return (f"Wind readings come from {s['station_name']}, {where} ({how}). "
+                "Conditions at the spot can differ.")
+    names = ", ".join(s["station_name"] or s["station_id"] for s in stations)
+    dists = [s["distance_km"] for s in stations if s.get("distance_km") is not None]
+    where = (f"{min(dists):g} to {max(dists):g} km from this spot" if dists
+             else "at unknown distances from this spot")
+    return (f"Wind readings come from {len(stations)} nearby stations ({names}), {where}. "
+            "Stations can disagree, and conditions at the spot can differ.")
 
 
 def build_payload(spot: dict, activity: str, level: str, obs: Observation, meta: dict,
@@ -204,10 +251,18 @@ def build_payload(spot: dict, activity: str, level: str, obs: Observation, meta:
     now = now or datetime.now(timezone.utc)
 
     wind = None
-    if obs.wind_kmh is not None:
+    stations = meta.get("wind_stations") or []
+    if obs.wind_kmh is not None and stations:
+        kmhs = [s["kmh"] for s in stations]
         wind = {
+            # the primary station (mapped, otherwise the nearest), kept for simple consumers
             "kmh": round(obs.wind_kmh, 1),
             "knots": round(obs.wind_kmh / KMH_PER_KNOT, 1),
+            "kmh_min": round(min(kmhs), 1),
+            "kmh_max": round(max(kmhs), 1),
+            "knots_min": round(min(kmhs) / KMH_PER_KNOT, 1),
+            "knots_max": round(max(kmhs) / KMH_PER_KNOT, 1),
+            "readings": [dict(s, knots=round(s["kmh"] / KMH_PER_KNOT, 1)) for s in stations],
             "from_deg": obs.wind_from_deg,
             "station": meta.get("wind_station"),
             "direction_station": meta.get("direction_station"),
@@ -216,6 +271,9 @@ def build_payload(spot: dict, activity: str, level: str, obs: Observation, meta:
             "stale": obs.wind_age_min is None or obs.wind_age_min > WIND_STALE_MIN,
             "note": _proxy_note(meta),
         }
+    wind_message = None
+    if wind is None and meta.get("wind_feed_ok"):
+        wind_message = f"No wind-reporting station within {meta.get('max_station_km', WIND_STATION_MAX_KM):g} km of this spot."
 
     lightning = None
     if obs.lightning is not None:
@@ -261,7 +319,7 @@ def build_payload(spot: dict, activity: str, level: str, obs: Observation, meta:
         "activity": activity,
         "level": level,
         "generated_at": now.astimezone(SGT).isoformat(),
-        "observations": {"wind": wind, "gusts": None, "lightning": lightning},
+        "observations": {"wind": wind, "wind_message": wind_message, "gusts": None, "lightning": lightning},
         "guidance": guidance,
         "sources": ["NEA via data.gov.sg"],
         "official_advisories": OFFICIAL_ADVISORIES,
