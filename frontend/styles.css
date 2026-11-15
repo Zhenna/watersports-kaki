@@ -47,6 +47,12 @@ select,button{font:inherit;font-size:.95rem;padding:.55rem .75rem;border:1px sol
 details{margin-top:.9rem}
 details>summary{cursor:pointer;font-weight:600;font-size:.9rem;color:var(--blue)}
 .block{margin-top:.8rem;padding-top:.8rem;border-top:1px solid #e6eefa}
+.subtabs-wrap{margin-top:.9rem;padding-top:.8rem;border-top:1px solid #e6eefa}
+.subtabs{display:flex;gap:.4rem}
+.subtab{flex:1 1 0;width:auto;min-height:2.6rem;padding:.35rem .5rem;border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--mist);font-weight:600;font-size:.8125rem;line-height:1.2;cursor:pointer}
+.subtab.on{border-color:var(--blue);background:var(--sky-light);color:var(--navy)}
+.subtab-body{margin-top:.7rem}
+.subtab-body p+p,.subtab-body ul{margin-top:.35rem}
 .block:first-of-type{border-top:none;padding-top:0}
 .stations{list-style:none;margin-top:.35rem}
 .stations li{margin-top:.2rem}

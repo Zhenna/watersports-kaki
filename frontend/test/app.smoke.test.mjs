@@ -19,7 +19,16 @@ class El {
 
 // A panel is a card with a visible part and a "Details" element that starts closed.
 const detailsOf = (panel) => panel.children.find((c) => c.tagName === "details");
-const visibleText = (panel) => panel.children.filter((c) => c.tagName !== "details").map((c) => c.textContent).join(" | ");
+const tabsWrapOf = (panel) => panel.children.find((c) => c.className === "subtabs-wrap");
+const visibleText = (panel) => panel.children
+  .filter((c) => c.tagName !== "details" && c.className !== "subtabs-wrap")
+  .map((c) => c.textContent).join(" | ");
+// The wind panel has two tabs, closed until one is tapped. Returns the text of the open tab, if any.
+const tabButtons = (panel) => tabsWrapOf(panel).children[0].children;
+const openTabText = (panel) => {
+  const body = tabsWrapOf(panel).children.find((c) => c.className === "subtab-body");
+  return body ? body.textContent : null;
+};
 
 const ACTIVITIES = { activities: [{ slug: "windsurf", name: "Windsurfing" }] };
 const SPOTS = { activity: "windsurf", spots: [
@@ -145,7 +154,7 @@ test("sport and location are dropdowns filled from the catalog", async () => {
   assert.ok(!f.calls.some((u) => u.includes("/forecast")), "the forecast loads only when asked for");
 });
 
-test("the wind panel shows a headline, with the rest tucked into its own details", async () => {
+test("the wind panel shows a headline, with two tabs for the rest, both closed", async () => {
   const els = await runApp(makeFetch(happyRoutes(payload())));
   const panel = els["wind-panel"];
   const v = visibleText(panel);
@@ -158,14 +167,48 @@ test("the wind panel shows a headline, with the rest tucked into its own details
     assert.doesNotMatch(v, hidden);
   }
   assert.doesNotMatch(panel.textContent, /Lightning|strike/i, "lightning does not belong in the wind panel");
-  const d = detailsOf(panel).textContent;
-  assert.match(d, /Conditions summary/);
-  assert.match(d, /Nearby stations report 12\.0 to 14\.0 km\/h/);
-  assert.match(d, /Source and limits/);
-  assert.match(d, /2 nearby stations, 1\.2 to 4 km from spot/);
-  assert.match(d, /Alpha, 1\.2 km away: 6\.5 kn \(12\.0 km\/h\), mapped to this spot/);
-  assert.match(d, /Wind speed only\. Gusts and shore-relative direction not assessed\. Ranges provisional\./);
+
+  const buttons = tabButtons(panel);
+  assert.deepEqual(buttons.map((b) => b.textContent), ["Conditions summary", "Sources and limits"]);
+  assert.equal(openTabText(panel), null, "both tabs start closed");
   assert.match(els.about.textContent, /For information only\. Not safety advice\./);
+});
+
+test("the Conditions summary tab holds the full wording", async () => {
+  const els = await runApp(makeFetch(happyRoutes(payload())));
+  const panel = els["wind-panel"];
+  tabButtons(panel)[0].listeners.click();
+  assert.equal(tabButtons(panel)[0].className, "subtab on");
+  assert.equal(tabButtons(panel)[1].className, "subtab");
+  const t = openTabText(panel);
+  assert.match(t, /Nearby stations report 12\.0 to 14\.0 km\/h/);
+  assert.doesNotMatch(t, /Alpha|Source/);
+});
+
+test("the Sources and limits tab holds the stations, the limits and the disclaimer", async () => {
+  const els = await runApp(makeFetch(happyRoutes(payload())));
+  const panel = els["wind-panel"];
+  tabButtons(panel)[1].listeners.click();
+  const t = openTabText(panel);
+  assert.match(t, /2 nearby stations, 1\.2 to 4 km from spot/);
+  assert.match(t, /Alpha, 1\.2 km away: 6\.5 kn \(12\.0 km\/h\), mapped to this spot/);
+  assert.match(t, /Wind speed only\. Gusts and shore-relative direction not assessed\. Ranges provisional\./);
+  assert.match(t, /Source: NEA via data\.gov\.sg\./);
+  assert.match(t, /Information only\./);
+  assert.doesNotMatch(t, /Nearby stations report/);
+});
+
+test("tapping a tab again closes it, and switching tabs shows the other one", async () => {
+  const els = await runApp(makeFetch(happyRoutes(payload())));
+  const panel = els["wind-panel"];
+  tabButtons(panel)[0].listeners.click();
+  assert.notEqual(openTabText(panel), null);
+  tabButtons(panel)[0].listeners.click();
+  assert.equal(openTabText(panel), null);
+  tabButtons(panel)[0].listeners.click();
+  tabButtons(panel)[1].listeners.click();
+  assert.match(openTabText(panel), /Alpha/);
+  assert.equal(tabButtons(panel)[0].className, "subtab");
 });
 
 test("lightning has its own panel: a short neutral summary, with the details tucked away", async () => {
@@ -177,11 +220,12 @@ test("lightning has its own panel: a short neutral summary, with the details tuc
   assert.match(v, /Live/);
   assert.match(v, /No strikes observed/);
   assert.match(v, /Not an all-clear/);
-  assert.match(v, /Within 20 km, last 30 min/);
+  assert.match(v, /Within 20 km of this spot, last 30 min/);
   assert.doesNotMatch(v, /Nearest strike|Checked|lag/);
   const d = detailsOf(panel).textContent;
-  assert.match(d, /No strikes within 20 km in the last 30 minutes\. This is not an all-clear\./);
-  assert.match(d, /Nearest strike: 44 km\./);
+  assert.match(d, /No strikes within 20 km of East Coast Parkway \(Carpark E5\) in the last 30 minutes\. This is not an all-clear\./);
+  assert.match(d, /Nearest strike: 44 km from the spot\./);
+  assert.match(d, /Source: NEA lightning observations via data\.gov\.sg\. Each point is a detected strike, not a station\./);
   assert.match(d, /Lightning data can lag by a few minutes\./);
   assert.doesNotMatch(panel.textContent, /Gentle breeze|kn/, "wind does not belong in the lightning panel");
 });
@@ -192,7 +236,7 @@ test("nearby lightning makes its panel prominent, with the advisory link, and is
   assert.match(panel.className, /alert/);
   const v = visibleText(panel);
   assert.match(v, /Lightning detected nearby/);
-  assert.match(v, /3 strikes within 20 km \u00b7 nearest 9\.1 km/);
+  assert.match(v, /3 strikes within 20 km of this spot \u00b7 nearest 9\.1 km/);
   assert.match(v, /MSS/);
   assert.match(detailsOf(panel).textContent, /Follow official advisories and your operator's procedures/);
   assert.doesNotMatch(els["wind-panel"].textContent, /Lightning|strike/i);
@@ -396,7 +440,8 @@ test("API text is inserted as text, not markup", async () => {
   const fc = forecastPayload({ pmText: "<script>alert(1)</script>", pmThundery: false });
   const els = await runApp(makeFetch(happyRoutes(evil, fc)), "?tab=plan&level=beginner");
   slotsOf(els.plan).children[1].listeners.click();    // add PM, which shows the forecast text
-  assert.match(detailsOf(els["wind-panel"]).textContent, /<img src=x onerror=alert\(1\)>/);
+  tabButtons(els["wind-panel"])[0].listeners.click();
+  assert.match(openTabText(els["wind-panel"]), /<img src=x onerror=alert\(1\)>/);
   assert.match(els.plan.textContent, /Afternoon: <script>alert\(1\)<\/script>/);
   const tags = [];
   const walk = (e) => { tags.push(e.tagName); e.children.forEach(walk); };

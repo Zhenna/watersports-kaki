@@ -19,6 +19,7 @@ const state = {
   activities: [], spots: [], activity: null, spot: null, level: "beginner", tab: "now",
   plan: { days: [], dayIdx: 0, slots: ["AM"] },
   forecast: { key: null, status: "idle", payload: null },
+  windTab: null,   // which wind sub-tab is open: null, 0 (summary) or 1 (sources and limits)
 };
 let lastLoad = 0;
 let inflight = null;
@@ -145,12 +146,9 @@ function renderWindPanel(v, ctx) {
   if (v.guidance.summary) s.appendChild(el("p", "summary", v.guidance.summary));
   if (!v.wind && v.windMessage) s.appendChild(el("p", "muted", v.windMessage));
 
-  const d = el("details");
-  d.appendChild(el("summary", null, "Details"));
-
-  const summary = block("Conditions summary");
-  if (v.guidance.detail) summary.appendChild(el("p", null, v.guidance.detail));
-  else summary.appendChild(el("p", "small", v.guidance.summary || "No assessment available."));
+  const summaryBox = el("div");
+  if (v.guidance.detail) summaryBox.appendChild(el("p", null, v.guidance.detail));
+  else summaryBox.appendChild(el("p", "small", v.guidance.summary || "No assessment available."));
   if (v.guidance.flags.length) {
     const ul = el("ul", "flags");
     for (const f of v.guidance.flags) {
@@ -159,31 +157,57 @@ function renderWindPanel(v, ctx) {
       li.appendChild(el("span", null, f.message));
       ul.appendChild(li);
     }
-    summary.appendChild(ul);
+    summaryBox.appendChild(ul);
   }
-  d.appendChild(summary);
 
-  const source = block("Source and limits");
+  const sourceBox = el("div");
   if (v.wind) {
-    source.appendChild(el("p", null, `${v.wind.source}, ${v.wind.sourceSub}`));
+    sourceBox.appendChild(el("p", null, `${v.wind.source}, ${v.wind.sourceSub}`));
     const ul = el("ul", "stations");
     for (const line of v.wind.stations) ul.appendChild(el("li", "small", line));
-    source.appendChild(ul);
+    sourceBox.appendChild(ul);
     if (v.wind.observed) {
       const p = el("p", "small", v.wind.observed);
       if (v.wind.stale) p.appendChild(el("span", "tag", "Out of date"));
-      source.appendChild(p);
+      sourceBox.appendChild(p);
     }
-    if (v.wind.note) source.appendChild(el("p", "small note", v.wind.note));
+    if (v.wind.note) sourceBox.appendChild(el("p", "small note", v.wind.note));
   } else {
-    source.appendChild(el("p", "small", v.windMessage));
+    sourceBox.appendChild(el("p", "small", v.windMessage));
   }
-  if (v.guidance.limitations) source.appendChild(el("p", "small", v.guidance.limitations));
-  if (v.sources.length) source.appendChild(el("p", "small", `Source: ${v.sources.join(", ")}.`));
-  d.appendChild(source);
+  if (v.guidance.limitations) sourceBox.appendChild(el("p", "small", v.guidance.limitations));
+  if (v.sources.length) sourceBox.appendChild(el("p", "small", `Source: ${v.sources.join(", ")}.`));
+  sourceBox.appendChild(el("p", "small", v.disclaimer));
 
-  d.appendChild(el("p", "small", v.disclaimer));
-  s.appendChild(d);
+  const wrap = el("div", "subtabs-wrap");
+  s.appendChild(wrap);
+  fillWindTabs(wrap, [["Conditions summary", summaryBox], ["Sources and limits", sourceBox]]);
+}
+
+// Two tabs, closed by default. Tapping the open tab again closes it.
+function fillWindTabs(wrap, tabs) {
+  wrap.replaceChildren();
+  const row = el("div", "subtabs");
+  row.setAttribute("role", "tablist");
+  tabs.forEach(([label], i) => {
+    const on = state.windTab === i;
+    const b = el("button", on ? "subtab on" : "subtab", label);
+    b.type = "button";
+    b.setAttribute("role", "tab");
+    b.setAttribute("aria-selected", String(on));
+    b.addEventListener("click", () => {
+      state.windTab = on ? null : i;
+      fillWindTabs(wrap, tabs);
+    });
+    row.appendChild(b);
+  });
+  wrap.appendChild(row);
+  if (state.windTab !== null) {
+    const body = el("div", "subtab-body");
+    body.setAttribute("role", "tabpanel");
+    body.appendChild(tabs[state.windTab][1]);
+    wrap.appendChild(body);
+  }
 }
 
 // Lightning is real time only, so it has its own panel and never appears in the forecast.

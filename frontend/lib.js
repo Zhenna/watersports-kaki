@@ -298,7 +298,10 @@ export function formHint(day, slotKeys) {
 }
 
 // Lightning is real time only and has its own panel: a headline, one line, and details.
-function lightningCard(li) {
+const LIGHTNING_SOURCE =
+  "Source: NEA lightning observations via data.gov.sg. Each point is a detected strike, not a station.";
+
+function lightningCard(li, spotName = "this spot") {
   const a = buildAlert(li);
   if (a && a.kind === "lightning") {
     const n = li.strikes_within_radius;
@@ -307,11 +310,12 @@ function lightningCard(li) {
       kind: "alert",
       headline: a.title,
       pill: "Follow official advisories",
-      line: `${n} strike${n === 1 ? "" : "s"} within ${li.radius_km} km${near}`,
+      line: `${n} strike${n === 1 ? "" : "s"} within ${li.radius_km} km of this spot${near}`,
       detail: [
-        `${n} strike${n === 1 ? "" : "s"} within ${li.radius_km} km in the last ${li.lookback_min} minutes.`,
+        `${n} strike${n === 1 ? "" : "s"} within ${li.radius_km} km of ${spotName} in the last ${li.lookback_min} minutes.`,
         "Follow official advisories and your operator's procedures.",
         withAge("Checked", li.fetched_at, li.age_min),
+        LIGHTNING_SOURCE,
       ].filter(Boolean),
     };
   }
@@ -323,12 +327,13 @@ function lightningCard(li) {
     kind: "quiet",
     headline: "No strikes observed",
     pill: "Not an all-clear",
-    line: `Within ${li.radius_km} km, last ${li.lookback_min} min`,
+    line: `Within ${li.radius_km} km of this spot, last ${li.lookback_min} min`,
     detail: [
-      `No strikes within ${li.radius_km} km in the last ${li.lookback_min} minutes. This is not an all-clear.`,
-      li.nearest_km != null ? `Nearest strike: ${li.nearest_km} km.` : null,
+      `No strikes within ${li.radius_km} km of ${spotName} in the last ${li.lookback_min} minutes. This is not an all-clear.`,
+      li.nearest_km != null ? `Nearest strike: ${li.nearest_km} km from the spot.` : null,
       checked ? `${checked}.` : null,
       "Lightning data can lag by a few minutes.",
+      LIGHTNING_SOURCE,
     ].filter(Boolean),
   };
 }
@@ -371,7 +376,7 @@ export function buildView(p) {
     windLine: windView ? `${windView.big} \u00b7 ${windView.directionShort}` : null,
     wind: windView,
     windMessage: windView ? null : (p?.observations?.wind_message || "Wind data unavailable."),
-    lightningCard: lightningCard(li),
+    lightningCard: lightningCard(li, p?.spot?.name || "this spot"),
     guidance: {
       status: g.status || "unavailable",
       statusLabel: pillLabel(g),

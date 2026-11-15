@@ -237,12 +237,13 @@ test("quiet lightning is a short neutral panel, never an all-clear, with the res
   assert.equal(c.kind, "quiet");
   assert.equal(c.headline, "No strikes observed");
   assert.equal(c.pill, "Not an all-clear");
-  assert.equal(c.line, "Within 20 km, last 30 min");
+  assert.equal(c.line, "Within 20 km of this spot, last 30 min");
   assert.deepEqual(c.detail, [
-    "No strikes within 20 km in the last 30 minutes. This is not an all-clear.",
-    "Nearest strike: 44.3 km.",
+    "No strikes within 20 km of East Coast Parkway (Carpark E5) in the last 30 minutes. This is not an all-clear.",
+    "Nearest strike: 44.3 km from the spot.",
     "Checked 20:38 SGT, just now.",
     "Lightning data can lag by a few minutes.",
+    "Source: NEA lightning observations via data.gov.sg. Each point is a detected strike, not a station.",
   ]);
 });
 
@@ -252,11 +253,13 @@ test("nearby lightning is one prominent panel and is not repeated in the wind gu
   assert.equal(c.kind, "alert");
   assert.equal(c.headline, "Lightning detected nearby");
   assert.equal(c.pill, "Follow official advisories");
-  assert.equal(c.line, "3 strikes within 20 km \u00b7 nearest 8.2 km");
+  assert.equal(c.line, "3 strikes within 20 km of this spot \u00b7 nearest 8.2 km");
+  assert.match(c.detail.join(" "), /3 strikes within 20 km of East Coast Parkway \(Carpark E5\)/);
+  assert.match(c.detail.join(" "), /not a station/);
   assert.match(c.detail.join(" "), /Follow official advisories and your operator's procedures/);
   assert.ok(!v.guidance.flags.some((f) => /Lightning/.test(f.message)));
   assert.doesNotMatch(v.guidance.summary ?? "", /Lightning/);
-  assert.equal(buildView(withLightning(1, 5)).lightningCard.line, "1 strike within 20 km \u00b7 nearest 5 km");
+  assert.equal(buildView(withLightning(1, 5)).lightningCard.line, "1 strike within 20 km of this spot \u00b7 nearest 5 km");
 });
 
 test("missing or old lightning data is a visible panel, not silence", () => {
