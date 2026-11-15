@@ -16,9 +16,7 @@ from models import Spot, Activity, ActivityConditionRule, FeedFetchLog
 from services.conditions_rules import Rule, WindSector
 
 
-def preview_mode() -> bool:
-    """Local testing only: allows non-public spots and unreviewed rules and sectors."""
-    return os.getenv("WSK_SHOW_PRIVATE_SPOTS") == "1"
+from services.guidance_policy import preview_mode, provisional_guidance, select_sectors  # noqa: E402,F401
 
 
 class NotFound(Exception):
@@ -43,9 +41,11 @@ class SpotContext:
     forecast_region: Optional[str] = None
 
 
-def load_context(slug: str, activity_slug: str, level: str, include_private: bool = False) -> SpotContext:
-    """Load a spot, its activity, the level's rules and the reviewed wind sectors.
-    include_private (preview mode) also allows non-public spots and unreviewed sectors."""
+def load_context(slug: str, activity_slug: str, level: str, include_private: bool = False,
+                 include_unreviewed: bool = False) -> SpotContext:
+    """Load a spot, its activity, the level's rules and the wind sectors.
+    include_private (preview mode) also allows non-public spots and unreviewed sectors.
+    include_unreviewed (provisional guidance) allows unreviewed sectors, and nothing else."""
     with get_session() as db:
         spot = db.execute(
             select(Spot).where(Spot.slug == slug)
@@ -82,12 +82,7 @@ def load_context(slug: str, activity_slug: str, level: str, include_private: boo
             for r in rule_rows
         ]
 
-        sectors = [
-            WindSector(s.from_deg, s.to_deg, s.direction_class)
-            for s in spot.wind_sectors
-            if (s.activity_id is None or s.activity_id == act.id)
-            and (include_private or s.reviewed_by)
-        ]
+        sectors = select_sectors(spot.wind_sectors, act.id, include_private or include_unreviewed)
 
         config = act.config or {}
         return SpotContext(

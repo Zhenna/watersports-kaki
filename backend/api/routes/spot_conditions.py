@@ -30,9 +30,10 @@ async def spot_conditions(
     if level not in LEVELS:
         raise HTTPException(status_code=422, detail=f"level must be one of {sorted(LEVELS)}")
     preview = repo.preview_mode()
+    provisional = repo.provisional_guidance()
 
     try:
-        ctx = await run_in_threadpool(repo.load_context, slug, activity, level, preview)
+        ctx = await run_in_threadpool(repo.load_context, slug, activity, level, preview, provisional)
     except repo.NotFound as e:
         raise HTTPException(status_code=404, detail=str(e))
     except repo.NotSupported as e:
@@ -52,7 +53,7 @@ async def spot_conditions(
         ctx.activity_slug, level, obs, ctx.rules,
         wind_dependent=ctx.wind_dependent, sectors=ctx.sectors,
     )
-    publish = preview or assessment.review_status != "unreviewed"
+    publish = preview or provisional or assessment.review_status != "unreviewed"
 
     log_entries = [
         {"source": "nea", "feed": feed, "ok": info["ok"], "error": info["error"],
@@ -77,9 +78,10 @@ async def spot_forecast(
     if level not in LEVELS:
         raise HTTPException(status_code=422, detail=f"level must be one of {sorted(LEVELS)}")
     preview = repo.preview_mode()
+    provisional = repo.provisional_guidance()
 
     try:
-        ctx = await run_in_threadpool(repo.load_context, slug, activity, level, preview)
+        ctx = await run_in_threadpool(repo.load_context, slug, activity, level, preview, provisional)
     except repo.NotFound as e:
         raise HTTPException(status_code=404, detail=str(e))
     except repo.NotSupported as e:
@@ -92,7 +94,7 @@ async def spot_forecast(
     four = parse_four_day(four_raw) if four_raw else None
     h24 = parse_24h(h24_raw) if h24_raw else None
 
-    publish = preview or (not ctx.wind_dependent) or rules_reviewed(ctx.rules, ctx.activity_slug, level)
+    publish = preview or provisional or (not ctx.wind_dependent) or rules_reviewed(ctx.rules, ctx.activity_slug, level)
     days = build_days(four, h24, ctx.forecast_region, ctx.rules, ctx.activity_slug, level,
                       ctx.wind_dependent, ctx.sectors, publish)
 

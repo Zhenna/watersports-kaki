@@ -131,6 +131,34 @@ Already done in the landing `index.html`: the hero button now reads "Check winds
 - **Watch the first week.** Check Render's logs and the `feed_fetch_log` table in Supabase for failing feeds.
 - **Supabase free projects pause after a week of inactivity.** A quiet week could take the API down. Move to Pro when real people use the app.
 
+## 10. Provisional guidance: make the page usable before the review
+
+By default the public sees the facts only. Two separate switches change that. Both are off until you act, and either can be undone.
+
+1. **Push the new backend code.** Render deploys it. Nothing changes yet: the guidance still reads `not_published`.
+2. **Apply the migration** that adds provisional East Coast shore sectors (`f2c8d51e7b94`):
+   ```bash
+   cd ~/my_code/watersports-kaki/backend
+   alembic heads                 # expect f2c8d51e7b94
+   alembic upgrade head
+   ```
+   On its own this changes nothing publicly, because the live site loads only reviewed sectors unless the second switch is on.
+3. **Turn on provisional guidance.** In Render, open `wsk-api`, then **Environment**, add `WSK_PROVISIONAL_GUIDANCE` with the value `1`, and choose **Save and deploy**.
+4. **Check it:**
+   ```bash
+   curl -s "https://api.watersportskaki.sg/api/spots/east-coast-parkway-carpark-e5/conditions?activity=windsurf&level=beginner" \
+     | python3 -c "import sys,json; d=json.load(sys.stdin)['guidance']; print(d['status'], d['wind_status'], d['review_status'])"
+   ```
+   The first word must **not** be `not_published`, and the last must be `unreviewed`. The page then says "provisional" wherever it shows a range.
+
+**To turn it off:** delete `WSK_PROVISIONAL_GUIDANCE` in Render and deploy. The page goes back to facts only. To remove the sectors as well: `alembic downgrade -1`.
+
+**Never set `WSK_SHOW_PRIVATE_SPOTS` on Render.** It is a different switch: it also reveals private spots.
+
+**What the public sees while this is on:** the headline (for example "Light air"), a status such as "Below provisional range", a limits line that says "Ranges provisional", and direction notes from the provisional sectors. The offshore note for beginners says "Independent practice is not recommended under this scenario." That is the strongest sentence the page says, and it rests on provisional sectors.
+
+**To end the provisional label,** a qualified reviewer signs the review pack, and the agreed values are loaded with the reviewer's name and the date.
+
 ## If something goes wrong
 
 | Symptom | Likely cause |
