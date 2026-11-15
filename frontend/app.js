@@ -1,7 +1,7 @@
 import { CONFIG } from "./config.js";
 import {
   LEVELS, LEVEL_LABELS, SLOTS, selectionFromQuery, pickOption, catalogActivitiesUrl,
-  catalogSpotsUrl, conditionsUrl, forecastUrl, buildView, buildForecastView, errorMessage,
+  catalogSpotsUrl, conditionsUrl, forecastUrl, buildView, buildForecastView, forecastDates, errorMessage,
   FAIL_CLOSED_NOTE, upcomingDays, planSummary, formHint,
 } from "./lib.js";
 
@@ -309,11 +309,13 @@ function renderPlan() {
   if (where) s.appendChild(el("p", "plan-sub", `${where} \u00b7 ${LEVEL_LABELS[state.level] ?? state.level}`));
   s.appendChild(el("p", "ask", "When would you like to go?"));
 
+  const withForecast = state.forecast.status === "ok" ? forecastDates(state.forecast.payload) : new Set();
   const chips = el("div", "chips");
   state.plan.days.forEach((d, i) => {
-    const b = el("button", i === state.plan.dayIdx ? "chip on" : "chip");
+    const has = withForecast.has(d.iso);
+    const b = el("button", `chip${i === state.plan.dayIdx ? " on" : ""}${has ? " has-forecast" : ""}`);
     b.type = "button";
-    b.setAttribute("aria-label", d.label);
+    b.setAttribute("aria-label", has ? `${d.label}, forecast available` : d.label);
     b.setAttribute("aria-pressed", String(i === state.plan.dayIdx));
     b.appendChild(el("span", "chip-dow", d.short));
     b.appendChild(el("span", "chip-num", String(d.num)));
@@ -321,6 +323,7 @@ function renderPlan() {
     chips.appendChild(b);
   });
   s.appendChild(chips);
+  if (withForecast.size) s.appendChild(el("p", "small legend", "A dot marks days with a forecast."));
 
   const slots = el("div", "slots");
   for (const sl of SLOTS) {
@@ -340,9 +343,8 @@ function renderPlan() {
 
   const day = state.plan.days[state.plan.dayIdx];
   const session = el("div", "session");
-  session.appendChild(el("p", "label", "Selected session"));
+  session.appendChild(el("p", "label", "Your selection"));
   session.appendChild(el("p", "session-title", planSummary(day, state.plan.slots)));
-  if (where) session.appendChild(el("p", "small", where));
   session.appendChild(el("p", "small", formHint(day, state.plan.slots)));
   s.appendChild(session);
 
@@ -475,6 +477,8 @@ function setupControls() {
   $("refresh").addEventListener("click", loadConditions);
   $("tab-now").addEventListener("click", () => setTab("now"));
   $("tab-plan").addEventListener("click", () => setTab("plan"));
+  $("go-plan").addEventListener("click", () => setTab("plan"));
+  $("go-now").addEventListener("click", () => setTab("now"));
 }
 
 setupControls();

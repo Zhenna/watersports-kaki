@@ -13,7 +13,7 @@ export const STATUS_LABELS = {
   unavailable: "Assessment unavailable",
   outside_reference_range: "Outside reference range",
   within_reference_range: "Within reference range",
-  inconclusive: "Stations disagree",
+  inconclusive: "Wind varies across stations",
   wind_not_applicable: "Wind limits not applicable",
   not_published: "Awaiting instructor review",
 };
@@ -227,8 +227,10 @@ const kn = (x) => Number(x).toFixed(1);
 function stationLine(r) {
   const name = r.station_name || r.station_id || "Station";
   const dist = r.distance_km != null ? `, ${r.distance_km} km away` : "";
+  const card = degreesToCardinal(r.direction_deg);
+  const from = card ? `, from ${card}` : "";
   const mapped = r.selection === "mapped" ? ", mapped to this spot" : "";
-  return `${name}${dist}: ${kn(r.knots)} kn (${kn(r.kmh)} km/h)${mapped}`;
+  return `${name}${dist}: ${kn(r.knots)} kn (${kn(r.kmh)} km/h)${from}${mapped}`;
 }
 
 function windHeadline(wind) {
@@ -397,6 +399,11 @@ export function buildView(p) {
   };
 }
 
+// The dates that have a forecast, so the date row can mark them.
+export function forecastDates(payload) {
+  return payload?.available === true ? new Set((payload.days || []).map((d) => d.date)) : new Set();
+}
+
 // The plan-ahead view for one chosen day and one or both of AM and PM, from the /forecast response.
 // Thunder comes first, then wind. Lightning is not here: it is checked live, under Right now.
 export function buildForecastView(payload, day, slotKeys) {
@@ -408,7 +415,8 @@ export function buildForecastView(payload, day, slotKeys) {
   if (!f) {
     return {
       state: "none",
-      message: `No forecast for ${day.label} yet. NEA's outlook covers the next ${payload.horizon_days ?? 4} days.`,
+      message: `Forecast not yet available for ${day.label}. NEA's outlook covers the next ${payload.horizon_days ?? 4} days. ` +
+               "You can still show interest in this day.",
     };
   }
   const g = f.guidance || {};

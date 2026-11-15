@@ -365,3 +365,28 @@ class TestPayloadWindPosition(unittest.TestCase):
 
     def test_unpublished_guidance_hides_it(self):
         self.assertIsNone(self.build(False)["guidance"]["wind_position"])
+
+
+class TestPerStationDirection(unittest.TestCase):
+    def test_each_station_carries_its_own_direction_when_the_feed_has_it(self):
+        from services.conditions_service import build_payload
+        dirs = {"timestamp": iso(3), "readings": [
+            {"station_id": "A", "station_name": "Alpha", "degrees": 30, "lat": 1.33, "lng": 103.91},
+            {"station_id": "C", "station_name": "Charlie", "degrees": 200, "lat": 1.36, "lng": 103.94},
+        ]}
+        obs, meta = build_observation(three_station_feed(iso(3)), dirs, lightning_feed(), *SPOT, now=NOW)
+        by_id = {s["station_id"]: s["direction_deg"] for s in meta["wind_stations"]}
+        self.assertEqual(by_id, {"A": 30, "B": None, "C": 200})
+        a = evaluate("windsurf", "beginner", obs, RULES)
+        p = build_payload({"slug": "x"}, "windsurf", "beginner", obs, meta, a, True, now=NOW)
+        self.assertEqual([r["direction_deg"] for r in p["observations"]["wind"]["readings"]], [30, None, 200])
+
+    def test_no_direction_feed_means_no_station_directions(self):
+        obs, meta = build_observation(three_station_feed(iso(3)), None, lightning_feed(), *SPOT, now=NOW)
+        self.assertTrue(all(s["direction_deg"] is None for s in meta["wind_stations"]))
+
+    def test_invalid_directions_are_ignored(self):
+        dirs = {"timestamp": iso(3), "readings": [
+            {"station_id": "A", "station_name": "Alpha", "degrees": float("nan"), "lat": 1.33, "lng": 103.91}]}
+        _, meta = build_observation(three_station_feed(iso(3)), dirs, lightning_feed(), *SPOT, now=NOW)
+        self.assertIsNone(meta["wind_stations"][0]["direction_deg"])

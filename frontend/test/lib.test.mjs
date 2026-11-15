@@ -4,12 +4,12 @@ import {
   degreesToCardinal, beaufortName, formatTimeSGT, agoText, levelFromQuery, isSafeHttpsUrl,
   upcomingDays, planSummary, formHint, SLOTS, forecastUrl, buildForecastView,
   catalogActivitiesUrl, catalogSpotsUrl, conditionsUrl, selectionFromQuery, pickOption,
-  errorMessage, buildView, buildAlert, pillLabel, notAssessed, STATUS_LABELS,
+  errorMessage, buildView, buildAlert, pillLabel, notAssessed, STATUS_LABELS, forecastDates,
 } from "../lib.js";
 
 const CONFIG = { API_BASE: "http://127.0.0.1:8000/" };
 
-const R1 = { station_id: "S43", station_name: "Kim Chuan Road", distance_km: 5.1, selection: "nearest", kmh: 5.7, knots: 3.1 };
+const R1 = { station_id: "S43", station_name: "Kim Chuan Road", distance_km: 5.1, selection: "nearest", kmh: 5.7, knots: 3.1, direction_deg: 32 };
 const R2 = { station_id: "S108", station_name: "Marina Barrage", distance_km: 5.4, selection: "nearest", kmh: 10.9, knots: 5.9 };
 
 const lightningQuiet = {
@@ -168,7 +168,7 @@ test("several stations are shown as a range, with every station listed", () => {
   assert.equal(v.wind.source, "2 nearby stations");
   assert.equal(v.wind.sourceSub, "5.1 to 5.4 km from spot");
   assert.deepEqual(v.wind.stations, [
-    "Kim Chuan Road, 5.1 km away: 3.1 kn (5.7 km/h)",
+    "Kim Chuan Road, 5.1 km away: 3.1 kn (5.7 km/h), from NNE",   // this station has its own direction
     "Marina Barrage, 5.4 km away: 5.9 kn (10.9 km/h)",
   ]);
   assert.equal(v.headline, "Light air to light breeze");
@@ -180,7 +180,7 @@ test("several stations are shown as a range, with every station listed", () => {
 
 test("stations that straddle the range are shown as disagreeing and never as suitable", () => {
   const g = buildView(TWO).guidance;
-  assert.equal(g.statusLabel, "Stations disagree");
+  assert.equal(g.statusLabel, "Wind varies across stations");
   assert.equal(g.summary, "Nearby stations fall on both sides of the range.");
   assert.match(g.detail, /straddles the provisional reference range/);
   assert.match(g.detail, /inconclusive/);
@@ -463,7 +463,10 @@ test("a range that spans the reference range is not called suitable, and is said
 test("a day beyond the outlook says so, and a missing forecast is never invented", () => {
   const v = buildForecastView(FORECAST, NEXT_MON, ["AM"]);
   assert.equal(v.state, "none");
-  assert.equal(v.message, "No forecast for Mon, 23 Nov yet. NEA's outlook covers the next 4 days.");
+  assert.equal(
+    v.message,
+    "Forecast not yet available for Mon, 23 Nov. NEA's outlook covers the next 4 days. You can still show interest in this day.",
+  );
   assert.equal(buildForecastView({ available: false, days: [] }, MON, ["AM"]).message, "Forecast unavailable right now.");
   assert.equal(buildForecastView(null, MON, ["AM"]).message, "Forecast unavailable right now.");
   assert.equal(buildForecastView(FORECAST, null, ["AM"]).message, "Choose a day.");
@@ -492,4 +495,16 @@ test("forecast wording has no verdict language", () => {
     const v = buildForecastView(FORECAST, day, ["AM", "PM"]);
     assert.doesNotMatch(`${v.thunderNotice} ${v.weatherLines.join(" ")} ${v.headline} ${v.pill} ${v.windLine} ${v.small}`, banned);
   }
+});
+
+test("the dates that have a forecast are known, so the date row can mark them", () => {
+  assert.deepEqual([...forecastDates(FORECAST)].sort(), ["2026-11-16", "2026-11-17"]);
+  assert.equal(forecastDates({ available: false, days: FORECAST.days }).size, 0);
+  assert.equal(forecastDates(null).size, 0);
+  assert.equal(forecastDates({ available: true }).size, 0);
+});
+
+test("a station without its own direction is listed without one, never with a made-up one", () => {
+  const v = buildView(TWO);
+  assert.equal(v.wind.stations[1], "Marina Barrage, 5.4 km away: 5.9 kn (10.9 km/h)");
 });

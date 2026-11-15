@@ -204,9 +204,18 @@ def build_observation(
             "selection": s["selection"],
         }
 
+    dir_by_station = {}
+    if direction:
+        for r in direction["readings"]:
+            if r.get("station_id") and _finite(r.get("degrees")):
+                dir_by_station[r["station_id"]] = r["degrees"]
+
     meta = {
         "wind_station": _station_meta(primary),
-        "wind_stations": [dict(_station_meta(s), kmh=round(s["value"], 1)) for s in w_list],
+        "wind_stations": [
+            dict(_station_meta(s), kmh=round(s["value"], 1), direction_deg=dir_by_station.get(s["station_id"]))
+            for s in w_list
+        ],
         "direction_station": _station_meta(d),
         "wind_feed_ok": wind is not None,
         "max_station_km": max_station_km,

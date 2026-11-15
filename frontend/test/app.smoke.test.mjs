@@ -107,7 +107,7 @@ let counter = 0;
 async function runApp(fetchImpl, search = "?level=beginner") {
   const els = {};
   const ids = ["sport", "spot", "level", "refresh", "context", "updated", "banner", "pane-now", "now-status",
-               "wind-panel", "lightning-panel", "pane-plan", "plan", "about", "tab-now", "tab-plan"];
+               "wind-panel", "lightning-panel", "pane-plan", "plan", "about", "tab-now", "tab-plan", "go-plan", "go-now"];
   for (const id of ids) els[id] = new El("div");
   globalThis.document = {
     getElementById: (id) => els[id],
@@ -271,7 +271,7 @@ test("plan ahead: seven scrolling dates, AM and PM, and a forecast with thunder 
   assert.equal(chips.length, 7);
   for (const c of chips) {
     assert.match(c.textContent, /^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\d{1,2}$/);
-    assert.match(c["aria-label"], /^(Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d{1,2} [A-Z][a-z]{2}$/);
+    assert.match(c["aria-label"], /^(Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d{1,2} [A-Z][a-z]{2}(, forecast available)?$/);
   }
   assert.match(text, /AMMorning/);
   assert.match(text, /PMAfternoon/);
@@ -286,9 +286,8 @@ test("plan ahead: seven scrolling dates, AM and PM, and a forecast with thunder 
   assert.doesNotMatch(text, /strike|No strikes|Lightning detected/);
   assert.match(text, /Interest only\. Nothing is booked\. We'll email you when others with similar plans sign up\./);
   const session = sessionOf(els.plan).textContent;
-  assert.match(session, /Selected session/);
-  assert.match(session, /^Selected session(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday), \d{1,2} [A-Z][a-z]+ \u00b7 AM/);
-  assert.match(session, /Windsurfing \u00b7 East Coast Parkway \(Carpark E5\)/);
+  assert.match(session, /^Your selection(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday), \d{1,2} [A-Z][a-z]+ \u00b7 AM/);
+  assert.doesNotMatch(session, /Windsurfing|Carpark/, "the sport and place are already in the subtitle");
   const cta = ctaOf(els.plan);
   assert.equal(cta.textContent, "I'm interested \u2192");
   assert.match(cta.className, /wide/);
@@ -365,7 +364,7 @@ test("choosing another day shows that day's forecast, or says there is none yet"
   chipsOf(els.plan).children[1].listeners.click();    // second day: below the range
   assert.match(els.plan.textContent, /Below provisional range/);
   chipsOf(els.plan).children[5].listeners.click();    // a day beyond the outlook
-  assert.match(els.plan.textContent, /No forecast for .* yet\. NEA's outlook covers the next 4 days\./);
+  assert.match(els.plan.textContent, /Forecast not yet available for .*\. NEA's outlook covers the next 4 days\. You can still show interest in this day\./);
   assert.doesNotMatch(els.plan.textContent, /Below provisional range/);
 });
 
@@ -448,4 +447,42 @@ test("API text is inserted as text, not markup", async () => {
   walk(els["wind-panel"]);
   walk(els.plan);
   assert.ok(!tags.includes("img") && !tags.includes("script"));
+});
+
+test("a dot marks the days that have a forecast, with a one-line explanation", async () => {
+  const els = await runApp(makeFetch(happyRoutes(payload())), "?tab=plan&level=beginner");
+  const chips = chipsOf(els.plan).children;
+  const marked = chips.map((c) => c.className.includes("has-forecast"));
+  assert.deepEqual(marked, [true, true, false, false, false, false, false]);
+  assert.match(chips[0]["aria-label"], /, forecast available$/);
+  assert.doesNotMatch(chips[2]["aria-label"], /forecast available/);
+  assert.match(els.plan.textContent, /A dot marks days with a forecast\./);
+});
+
+test("no dots are shown before the forecast has loaded, or when it fails", async () => {
+  const els = await runApp(makeFetch([
+    ["/api/catalog/activities", () => ok(ACTIVITIES)],
+    ["/api/catalog/spots", () => ok(SPOTS)],
+    ["/forecast", () => { throw new TypeError("network down"); }],
+    ["/conditions", () => ok(payload())],
+  ]), "?tab=plan&level=beginner");
+  assert.ok(chipsOf(els.plan).children.every((c) => !c.className.includes("has-forecast")));
+  assert.doesNotMatch(els.plan.textContent, /A dot marks/);
+});
+
+test("each view links to the other, and the choice of day and time is kept", async () => {
+  const f = makeFetch(happyRoutes(payload()));
+  const els = await runApp(f);
+  els["go-plan"].listeners.click();
+  await wait();
+  assert.equal(els["pane-plan"].hidden, false);
+  assert.equal(els["pane-now"].hidden, true);
+  slotsOf(els.plan).children[1].listeners.click();                 // add PM
+  chipsOf(els.plan).children[1].listeners.click();                 // second day
+  els["go-now"].listeners.click();
+  assert.equal(els["pane-now"].hidden, false);
+  assert.equal(els["pane-plan"].hidden, true);
+  els["go-plan"].listeners.click();
+  assert.deepEqual(slotsOf(els.plan).children.map((b) => b.className), ["slot on", "slot on"]);
+  assert.equal(chipsOf(els.plan).children[1].className.split(" ").includes("on"), true);
 });
