@@ -239,7 +239,13 @@ function renderLightningPanel(v) {
 
 function renderAboutShort() {
   const s = $("about");
-  s.replaceChildren(el("p", "small", "For information only. Not safety advice."));
+  const p = el("p", "small", "For information only. Not safety advice. ");
+  const link = el("a", null, "Privacy");
+  link.href = "https://watersportskaki.sg/privacy.html";
+  link.target = "_blank";
+  link.rel = "noopener";
+  p.appendChild(link);
+  s.replaceChildren(p);
 }
 
 function renderNow(v, ctx) {

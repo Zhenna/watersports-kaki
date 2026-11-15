@@ -486,3 +486,20 @@ test("each view links to the other, and the choice of day and time is kept", asy
   assert.deepEqual(slotsOf(els.plan).children.map((b) => b.className), ["slot on", "slot on"]);
   assert.equal(chipsOf(els.plan).children[1].className.split(" ").includes("on"), true);
 });
+
+test("the API address depends on where the page is served from", async () => {
+  globalThis.location = { hostname: "localhost" };
+  assert.equal((await import("../config.js?local")).CONFIG.API_BASE, "http://127.0.0.1:8000");
+  globalThis.location = { hostname: "127.0.0.1" };
+  assert.equal((await import("../config.js?loopback")).CONFIG.API_BASE, "http://127.0.0.1:8000");
+  globalThis.location = { hostname: "app.watersportskaki.sg" };
+  assert.equal((await import("../config.js?live")).CONFIG.API_BASE, "https://api.watersportskaki.sg");
+});
+
+test("the app links to the privacy page", async () => {
+  const els = await runApp(makeFetch(happyRoutes(payload())));
+  const link = els.about.children[0].children.find((c) => c.tagName === "a");
+  assert.equal(link.textContent, "Privacy");
+  assert.equal(link.href, "https://watersportskaki.sg/privacy.html");
+  assert.equal(link.target, "_blank");
+});
