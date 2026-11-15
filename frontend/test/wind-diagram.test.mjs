@@ -1,0 +1,128 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { norm, compass, vec, angularSpread, diagramState, arrowSpeedPx, arrowLengthPx, createWindDiagram } from "../wind-diagram.js";
+
+// Shape copied from a real /api/spots/<slug>/conditions response.
+const wind = (over = {}) => ({
+  knots: 1.9, from_deg: 35, stale: false,
+  direction_station: { station_id: "S43", station_name: "Kim Chuan Road" },
+  readings: [
+    { station_id: "S43", direction_deg: 35 },
+    { station_id: "S108", direction_deg: 296 },
+    { station_id: "S06", direction_deg: 306 },
+  ],
+  ...over,
+});
+
+test("compass names", () => {
+  assert.equal(compass(0), "N");
+  assert.equal(compass(35), "NE");
+  assert.equal(compass(345), "NNW");
+  assert.equal(compass(359), "N");
+  assert.equal(compass(-10), "N");  // 350 is within 11.25 of north
+  assert.equal(compass(-30), "NNW"); // 330
+});
+
+test("norm wraps", () => {
+  assert.equal(norm(360), 0);
+  assert.equal(norm(-90), 270);
+});
+
+test("vec points the way a compass does", () => {
+  const [x, y] = vec(90);
+  assert.ok(Math.abs(x - 1) < 1e-9 && Math.abs(y) < 1e-9); // east is right
+  const [nx, ny] = vec(0);
+  assert.ok(Math.abs(nx) < 1e-9 && Math.abs(ny + 1) < 1e-9); // north is up
+});
+
+test("angularSpread goes the short way round", () => {
+  assert.equal(angularSpread([350, 10]), 20);
+  assert.equal(angularSpread([35, 296, 306]), 99); // 35 to 296 the short way
+  assert.equal(angularSpread([90]), 0);
+});
+
+test("arrows travel toward from + 180", () => {
+  const s = diagramState(wind());
+  assert.equal(s.status, "ok");
+  assert.equal(s.fromDeg, 35);
+  assert.equal(s.toDeg, 215);
+  assert.match(s.main, /Wind from NE \(35\u00b0\)/);
+  assert.match(s.sub, /toward SW \(215\u00b0\)/);
+  assert.match(s.sub, /Kim Chuan Road/);
+});
+
+test("stations that disagree are flagged", () => {
+  const s = diagramState(wind());
+  assert.equal(s.disagree, true);
+  assert.deepEqual(s.others, [296, 306]);
+  assert.match(s.sub, /different directions/);
+});
+
+test("stations that agree are not flagged", () => {
+  const s = diagramState(wind({ readings: [{ station_id: "S43", direction_deg: 35 }, { station_id: "S1", direction_deg: 50 }] }));
+  assert.equal(s.disagree, false);
+});
+
+test("fails closed on missing, stale or invalid readings", () => {
+  for (const bad of [null, undefined, "x", {}, wind({ from_deg: null }), wind({ from_deg: NaN }), wind({ from_deg: -5 }), wind({ from_deg: 400 }), wind({ from_deg: "35" })]) {
+    const s = diagramState(bad);
+    assert.equal(s.status, "unavailable");
+    assert.equal(s.fromDeg, undefined);
+  }
+  const stale = diagramState(wind({ stale: true }));
+  assert.equal(stale.status, "unavailable");
+  assert.match(stale.main, /out of date/);
+});
+
+test("missing or negative speed shows direction but no arrows", () => {
+  for (const knots of [null, undefined, NaN, -1]) {
+    assert.equal(diagramState(wind({ knots })).status, "no_speed");
+  }
+});
+
+test("calm shows no arrows", () => {
+  assert.equal(diagramState(wind({ knots: 0.4 })).status, "calm");
+  assert.equal(diagramState(wind({ knots: 1 })).status, "ok");
+});
+
+test("360 is treated as north", () => {
+  assert.equal(diagramState(wind({ from_deg: 360 })).fromDeg, 0);
+});
+
+test("speed and length scale and stay bounded", () => {
+  assert.ok(arrowSpeedPx(2) < arrowSpeedPx(15));
+  assert.equal(arrowSpeedPx(500), 110);
+  assert.ok(arrowLengthPx(2) < arrowLengthPx(15));
+  assert.equal(arrowLengthPx(500), 34);
+});
+
+test("no wording about suitability appears in any output", () => {
+  const banned = /safe|good to go|no-go|go\b|recommend|ideal|dangerous/i;
+  for (const w of [wind(), wind({ stale: true }), wind({ knots: 0 }), null]) {
+    const s = diagramState(w);
+    assert.doesNotMatch(s.main + " " + s.sub, banned);
+  }
+});
+
+test("a page with no usable DOM never breaks the app", () => {
+  const saved = globalThis.document;
+  try {
+    for (const doc of [undefined, {}, { createElementNS: () => { throw new Error("boom"); }, createElement: () => ({}) }]) {
+      globalThis.document = doc;
+      const d = createWindDiagram({ hidden: false });
+      assert.doesNotThrow(() => d.update(wind()));
+      assert.doesNotThrow(() => d.update(null));
+      assert.doesNotThrow(() => d.clear());
+      assert.doesNotThrow(() => d.destroy());
+    }
+    globalThis.document = saved;
+    assert.doesNotThrow(() => createWindDiagram(undefined).update(wind()));
+  } finally {
+    globalThis.document = saved;
+  }
+});
+
+test("a missing host is ignored", () => {
+  const d = createWindDiagram(null);
+  assert.doesNotThrow(() => { d.update(wind()); d.clear(); d.destroy(); });
+});

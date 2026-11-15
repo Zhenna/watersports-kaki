@@ -8,7 +8,7 @@ SRC="$(cd "$(dirname "$0")/.." && pwd)/frontend"
 DEST="${1:-$HOME/my_code/wsk-landing/app}"
 
 mkdir -p "$DEST"
-for f in index.html app.js lib.js config.js styles.css logo-emblem.png favicon.png apple-touch-icon.png; do
+for f in index.html app.js lib.js wind-diagram.js config.js styles.css logo-emblem.png favicon.png apple-touch-icon.png; do
   cp "$SRC/$f" "$DEST/$f"
 done
 

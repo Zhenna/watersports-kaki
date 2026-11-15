@@ -4,8 +4,10 @@ import {
   catalogSpotsUrl, conditionsUrl, forecastUrl, buildView, buildForecastView, forecastDates, errorMessage,
   FAIL_CLOSED_NOTE, upcomingDays, planSummary, formHint,
 } from "./lib.js";
+import { createWindDiagram } from "./wind-diagram.js";
 
 const $ = (id) => document.getElementById(id);
+const windDiagram = createWindDiagram($("wind-diagram-panel"));
 
 // All API text goes in through textContent, never innerHTML.
 function el(tag, cls, text) {
@@ -62,6 +64,7 @@ function updateUrl() {
 function clearNow() {
   for (const id of ["wind-panel", "lightning-panel"]) $(id).replaceChildren();
   $("lightning-panel").className = "card";
+  windDiagram.clear();
 }
 
 function showBanner(message, kind, withNote = false) {
@@ -405,6 +408,7 @@ async function loadConditions() {
     }
     const payload = await res.json();
     renderNow(buildView(payload), { activityName: state.activity.name, spotName: state.spot.name });
+    windDiagram.update(payload.observations && payload.observations.wind);
     lastLoad = Date.now();
   } catch (e) {
     if (inflight !== ctrl) return;  // replaced by a newer request
