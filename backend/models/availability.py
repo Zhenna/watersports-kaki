@@ -9,15 +9,14 @@ from .base import Base
 class UserAvailability(Base):
     """
     Recurring weekly availability, owned by the user, not by an intent or an app.
-    weekday: 0 = Monday ... 6 = Sunday. part_of_day: am | pm | evening.
-    Sat AM = (5, 'am'). "Weekday evenings" = (0..4, 'evening'), one row each.
-    Singapore local time.
+    weekday: 0 = Monday ... 6 = Sunday. part_of_day: am | pm. There are no evening slots.
+    Sat AM = (5, 'am'). Singapore local time.
     """
     __tablename__ = "user_availability"
     __table_args__ = (
         UniqueConstraint("user_id", "weekday", "part_of_day", name="uq_user_availability"),
         CheckConstraint("weekday between 0 and 6", name="ck_user_availability_weekday"),
-        CheckConstraint("part_of_day in ('am', 'pm', 'evening')",
+        CheckConstraint("part_of_day in ('am', 'pm')",
                         name="ck_user_availability_part_of_day"),
     )
 
