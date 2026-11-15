@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { norm, compass, vec, angularSpread, diagramState, arrowSpeedPx, arrowLengthPx, createWindDiagram, shoreState, labelCorners } from "../wind-diagram.js";
+import { norm, compass, vec, angularSpread, diagramState, arrowSpeedPx, arrowLengthPx, createWindDiagram, shoreState, labelCorners, directionState } from "../wind-diagram.js";
 
 // Shape copied from a real /api/spots/<slug>/conditions response.
 const wind = (over = {}) => ({
@@ -179,4 +179,50 @@ test("Land and Sea labels go in opposite corners, land on the land side", () => 
 test("shoreline wording has no suitability language", () => {
   const banned = /safe|good to go|no-go|recommend|ideal|dangerous|offshore|onshore/i;
   assert.doesNotMatch(diagramState(wind(), lp()).sub, banned);
+});
+
+const dirBlock = (over = {}) => ({ class: "cross_shore", other_classes: ["offshore"], review_status: "unreviewed", ...over });
+
+test("the class label names the class, with draft until reviewed", () => {
+  assert.deepEqual(directionState(dirBlock()), { label: "Cross-shore", differ: ["offshore"], draft: true });
+  assert.equal(directionState(dirBlock({ review_status: "reviewed" })).draft, false);
+  assert.equal(directionState(dirBlock({ class: "onshore", other_classes: [] })).label, "Onshore");
+  assert.equal(directionState(dirBlock({ class: "offshore" })).label, "Offshore");
+});
+
+test("stations in another class are named, and agreeing stations add nothing", () => {
+  const s = diagramState(wind({ from_deg: 45 }), null, dirBlock());
+  assert.match(s.sub, /Other stations read as offshore\./);
+  const agree = diagramState(wind({ from_deg: 45 }), null, dirBlock({ other_classes: [] }));
+  assert.doesNotMatch(agree.sub, /Other stations/);
+});
+
+test("no direction block means no label and unchanged text", () => {
+  for (const none of [undefined, null, {}, "x", { class: "unknown" }, { class: 5 }]) {
+    assert.equal(diagramState(wind(), null, none).dir, null);
+  }
+  assert.equal(diagramState(wind()).sub, diagramState(wind(), null, null).sub);
+});
+
+test("unknown classes in other_classes are dropped, and the primary class is not repeated", () => {
+  assert.deepEqual(directionState(dirBlock({ other_classes: ["bogus", "cross_shore", "offshore"] })).differ, ["offshore"]);
+  assert.deepEqual(directionState(dirBlock({ other_classes: "offshore" })).differ, []);
+});
+
+test("the label is hidden when the wind reading is missing or stale", () => {
+  assert.equal(diagramState(null, null, dirBlock()).dir, null);
+  assert.equal(diagramState(wind({ stale: true }), null, dirBlock()).dir, null);
+  assert.equal(diagramState(wind({ from_deg: null }), null, dirBlock()).dir, null);
+});
+
+test("the label still shows in calm wind, where the direction is real but there are no arrows", () => {
+  assert.equal(diagramState(wind({ knots: 0.4 }), null, dirBlock()).dir.label, "Cross-shore");
+});
+
+test("the class label adds no advice words", () => {
+  const banned = /safe|good to go|no-go|recommend|ideal|dangerous|avoid|should/i;
+  for (const c of ["onshore", "cross_shore", "offshore"]) {
+    const s = diagramState(wind(), lp(), dirBlock({ class: c, other_classes: ["offshore", "onshore"].filter((k) => k !== c) }));
+    assert.doesNotMatch(s.sub + " " + s.dir.label, banned);
+  }
 });

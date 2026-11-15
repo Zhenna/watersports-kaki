@@ -5,7 +5,9 @@ from starlette.concurrency import run_in_threadpool
 
 from services import conditions_repo as repo
 from services.conditions_rules import evaluate
+from services.conditions_rules import WIND_STALE_MIN
 from services.conditions_service import build_observation, build_payload
+from services.shore_direction import shore_direction
 from services.feed_cache import FeedCache
 from services.forecast import (
     build_days, build_forecast_payload, parse_24h, parse_four_day, rules_reviewed,
@@ -67,7 +69,15 @@ async def spot_conditions(
     if publish and ctx.launch_point:
         # Same gate as the guidance: a draft shoreline is shown only while provisional guidance is on.
         spot["launch_point"] = ctx.launch_point
-    return build_payload(spot, ctx.activity_slug, level, obs, meta, assessment, publish)
+    payload = build_payload(spot, ctx.activity_slug, level, obs, meta, assessment, publish)
+    if publish and ctx.wind_dependent and obs.wind_age_min is not None and obs.wind_age_min <= WIND_STALE_MIN:
+        dir_id = (meta.get("direction_station") or {}).get("station_id")
+        others = [s["direction_deg"] for s in meta.get("wind_stations") or []
+                  if s.get("direction_deg") is not None and s.get("station_id") != dir_id]
+        block = shore_direction(obs.wind_from_deg, others, ctx.sectors, ctx.sectors_reviewed)
+        if block:
+            payload["guidance"]["direction"] = block   # same gate as the sectors it comes from
+    return payload
 
 
 @router.get("/{slug}/forecast")

@@ -41,6 +41,7 @@ class SpotContext:
     nea_station_id: Optional[str] = None
     forecast_region: Optional[str] = None
     launch_point: Optional[dict] = None
+    sectors_reviewed: bool = False
 
 
 def load_context(slug: str, activity_slug: str, level: str, include_private: bool = False,
@@ -87,6 +88,10 @@ def load_context(slug: str, activity_slug: str, level: str, include_private: boo
 
         sectors = select_sectors(spot.wind_sectors, act.id, include_private or include_unreviewed)
 
+        # Every sector for this activity must be reviewed for the page to drop the draft label.
+        applicable = [x for x in spot.wind_sectors if x.activity_id is None or x.activity_id == act.id]
+        sectors_reviewed = bool(applicable) and all(x.reviewed_by for x in applicable)
+
         launch_point = select_launch_point(spot.launch_points, act.id, include_private or include_unreviewed)
 
         config = act.config or {}
@@ -102,6 +107,7 @@ def load_context(slug: str, activity_slug: str, level: str, include_private: boo
             nea_station_id=spot.nea_station_id,
             forecast_region=spot.forecast_region,
             launch_point=launch_point,
+            sectors_reviewed=sectors_reviewed,
         )
 
 

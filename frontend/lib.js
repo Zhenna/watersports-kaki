@@ -385,8 +385,11 @@ export function buildView(p) {
       summary: guidanceSummary(g),
       detail: guidanceDetail(g),
       limitations: limitationsText(p, g),
+      // The cross-shore note moves to the wind direction card when the API sends guidance.direction.
+      // Without it (an older API), the note stays here so nothing is lost.
       flags: (g.flags || [])
         .filter((f) => !HIDDEN_FLAG_CODES.has(f.code))
+        .filter((f) => !(f.code === "cross_shore_wind" && g.direction))
         .map((f) => ({
           severity: f.severity,
           label: SEVERITY_LABELS[f.severity] ?? "Note",

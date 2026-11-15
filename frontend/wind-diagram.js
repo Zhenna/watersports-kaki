@@ -89,12 +89,30 @@ export function labelCorners(seaDeg) {
   return { land, sea };
 }
 
-export function diagramState(wind, launchPoint) {
+const CLASS_LABEL = { onshore: "Onshore", cross_shore: "Cross-shore", offshore: "Offshore" };
+
+// guidance.direction from the API: the wind's class against the shore. Anything odd means no label.
+export function directionState(d) {
+  if (!d || typeof d !== "object" || !CLASS_LABEL[d.class]) return null;
+  const others = (Array.isArray(d.other_classes) ? d.other_classes : [])
+    .filter((c) => CLASS_LABEL[c] && c !== d.class);
+  return {
+    label: CLASS_LABEL[d.class],
+    differ: others.map((c) => CLASS_LABEL[c].toLowerCase()),
+    draft: d.review_status !== "reviewed",
+  };
+}
+
+export function diagramState(wind, launchPoint, direction) {
   const st = windState(wind);
   const shore = shoreState(launchPoint);
-  if (!shore) return { ...st, shore: null };
-  const note = `Shoreline about ${Math.round(shore.shoreDeg)}\u00b0${shore.draft ? ", draft" : ""}.`;
-  return { ...st, shore, sub: `${st.sub} ${note}` };
+  // The class comes from the same reading as the arrows, so it is hidden when that reading is not usable.
+  const usable = st.status === "ok" || st.status === "calm" || st.status === "no_speed";
+  const dir = usable ? directionState(direction) : null;
+  let sub = st.sub;
+  if (dir && dir.differ.length) sub += ` Other stations read as ${dir.differ.join(" and ")}.`;
+  if (shore) sub += ` Shoreline about ${Math.round(shore.shoreDeg)}\u00b0${shore.draft ? ", draft" : ""}.`;
+  return { ...st, shore, dir, sub };
 }
 
 const CSS = `
@@ -112,6 +130,7 @@ const CSS = `
 .wsk-wd .wd-from{fill:#2a6fdb;stroke:#fff;stroke-width:2;vector-effect:non-scaling-stroke}
 .wsk-wd .wd-other{fill:#fff;stroke:#0d2c5b;stroke-opacity:.6;stroke-width:1.2;vector-effect:non-scaling-stroke}
 .wsk-wd .wd-main{margin:8px 0 0;font-weight:600}
+.wsk-wd .wd-main .pill{margin-left:8px;vertical-align:middle;font-weight:600}
 .wsk-wd .wd-sub{margin:2px 0 0}
 `;
 
@@ -253,9 +272,16 @@ function buildDiagram(host) {
         svgEl("circle", { class: "wd-other", r: 3.5, cx: CX + ox * R, cy: CY + oy * R }, otherDots);
       }
     }
-    main.textContent = current.main;
+    main.replaceChildren(htmlEl("span", null, current.main));
+    let dirText = "";
+    if (current.dir) {
+      dirText = `${current.dir.label}${current.dir.draft ? " (draft)" : ""}`;
+      main.appendChild(htmlEl("span", "pill", dirText));
+      if (current.dir.differ.length) main.appendChild(htmlEl("span", "pill", "Stations differ"));
+      dirText = `, ${dirText}`;
+    }
     sub.textContent = current.sub;
-    svg.setAttribute("aria-label", `${current.main}. ${current.sub}`);
+    svg.setAttribute("aria-label", `${current.main}${dirText}. ${current.sub}`);
 
     if (showArrows) {
       buildPool(current.toDeg, current.knots);
@@ -273,8 +299,8 @@ function buildDiagram(host) {
   if (typeof document.addEventListener === "function") document.addEventListener("visibilitychange", onVisibility);
 
   return {
-    // `wind` is observations.wind from the API (or null). `launchPoint` is spot.launch_point (or undefined).
-    update(wind, launchPoint) { current = diagramState(wind, launchPoint); render(); },
+    // wind: observations.wind. launchPoint: spot.launch_point. direction: guidance.direction. Any may be missing.
+    update(wind, launchPoint, direction) { current = diagramState(wind, launchPoint, direction); render(); },
     clear() { stop(); current = null; flow.replaceChildren(); scene.replaceChildren(); host.hidden = true; },
     destroy() {
       stop();
@@ -308,10 +334,10 @@ export function createWindDiagram(host) {
   }
 
   return {
-    update(wind, launchPoint) {
+    update(wind, launchPoint, direction) {
       const d = get();
       if (!d) return;
-      try { d.update(wind, launchPoint); } catch (err) { disable(err); }
+      try { d.update(wind, launchPoint, direction); } catch (err) { disable(err); }
     },
     clear() { if (inner) { try { inner.clear(); } catch (err) { disable(err); } } },
     destroy() { if (inner) { try { inner.destroy(); } catch (err) { /* already gone */ } } inner = null; },
