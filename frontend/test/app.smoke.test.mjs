@@ -107,7 +107,7 @@ let counter = 0;
 async function runApp(fetchImpl, search = "?level=beginner") {
   const els = {};
   const ids = ["sport", "spot", "level", "refresh", "context", "updated", "banner", "pane-now", "now-status",
-               "wind-panel", "lightning-panel", "pane-plan", "plan", "about", "tab-now", "tab-plan", "go-plan", "go-now"];
+               "wind-panel", "lightning-panel", "pane-plan", "plan", "about", "tab-now", "tab-plan", "go-plan", "go-now", "more-sports"];
   for (const id of ids) els[id] = new El("div");
   globalThis.document = {
     getElementById: (id) => els[id],
@@ -500,6 +500,11 @@ test("the app links to the privacy page", async () => {
   const els = await runApp(makeFetch(happyRoutes(payload())));
   const link = els.about.children[0].children.find((c) => c.tagName === "a");
   assert.equal(link.textContent, "Privacy");
-  assert.equal(link.href, "https://watersportskaki.sg/privacy.html");
+  assert.equal(link.href, "https://www.watersportskaki.sg/privacy.html");
   assert.equal(link.target, "_blank");
+});
+
+test("the pilot note links to the form for asking for more sports", async () => {
+  const els = await runApp(makeFetch(happyRoutes(payload())));
+  assert.equal(els["more-sports"].href, "https://forms.gle/a8mwPQpaSkaex2w37");
 });

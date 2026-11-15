@@ -5,11 +5,11 @@
 
 | Piece | Address | Host |
 |---|---|---|
-| Landing page | `watersportskaki.sg` | Vercel (unchanged) |
-| App (static files in `frontend/`) | `app.watersportskaki.sg` | A static host (see step 5) |
+| Landing page | `www.watersportskaki.sg` (the bare `.sg` redirects to it) | Vercel (unchanged) |
+| App (static files from `frontend/`) | `www.watersportskaki.sg/app/`, inside the landing project | Vercel, the same project as the landing page |
 | API (`backend/`) | `api.watersportskaki.sg` | Render, Starter instance, Singapore region |
 
-Link the landing page to the app. **Do not embed it in an iframe.** Google sign-in does not work inside a frame, and room share links must be real addresses people can send.
+One website serves both. The landing page's hero button links to `/app/`. **Do not embed the app in an iframe.** Google sign-in does not work inside a frame, and room share links must be real addresses people can send.
 
 ## Before you start
 
@@ -43,7 +43,7 @@ New, then Web Service, then connect the GitHub repo.
 |---|---|
 | `DATABASE_URL` | The same Supabase connection string |
 | `NEA_BASE_URL` | The same value as local |
-| `ALLOWED_ORIGINS` | `https://app.watersportskaki.sg` only, in the same format as your local file |
+| `ALLOWED_ORIGINS` | `["https://www.watersportskaki.sg"]` only, in the same format as your local file |
 | `PYTHON_VERSION` | Match your local version, for example `3.11.9` |
 
 **Never set `WSK_SHOW_PRIVATE_SPOTS` on Render.** It would show unreviewed guidance to the public.
@@ -87,43 +87,43 @@ In Render, open the service, then Settings, then Custom Domains, and add `api.wa
 curl -s https://api.watersportskaki.sg/
 ```
 
-## 5. The app's static files
+## 5. Put the app inside the landing project
 
-The `frontend/` folder is plain files with no build step. On Vercel, add a second project from the same repo:
+No second Vercel project and no extra DNS record. The app's files are copied into the landing repo, in an `app/` folder, and Vercel publishes them with the landing page.
 
-| Setting | Value |
-|---|---|
-| Root Directory | `frontend` |
-| Framework Preset | Other |
-| Build Command | leave empty |
+```bash
+cd ~/my_code/watersports-kaki
+bash scripts/sync_app.sh                  # copies 8 files into ~/my_code/wsk-landing/app/
+cd ~/my_code/wsk-landing
+git status --short                        # the new app/ folder and the updated index.html
+git add app index.html
+git commit -m "feat: windsurfing pilot app at /app, hero button leads to it"
+git push
+```
 
-Add the domain `app.watersportskaki.sg`, then the DNS record Vercel shows you.
+Vercel deploys on its own. Then `https://www.watersportskaki.sg/app/` shows the app.
 
-**Check the plan terms before relying on Vercel's free Hobby plan.** It has been described as non-commercial. Cloudflare Pages is a free alternative for static files, and its terms also need checking.
+**Whenever the app changes, repeat the copy and push.** The `frontend/` folder in the watersports-kaki repo stays the source of truth. The copy in the landing repo is generated, so never edit it by hand.
 
 ## 6. Check the CORS setting
 
 ```bash
-curl -s -i -H "Origin: https://app.watersportskaki.sg" https://api.watersportskaki.sg/api/catalog/activities \
+curl -s -i -H "Origin: https://www.watersportskaki.sg" https://api.watersportskaki.sg/api/catalog/activities \
   | grep -i "access-control-allow-origin"
 ```
 
-You should see your app address. If not, `ALLOWED_ORIGINS` is wrong on Render.
+You should see `https://www.watersportskaki.sg`. If not, `ALLOWED_ORIGINS` is wrong on Render. After you change it there, the service restarts for about a minute.
 
 ## 7. Try it on your phone
 
-Open `https://app.watersportskaki.sg` on mobile data. Check:
+Open `https://www.watersportskaki.sg` on mobile data, tap the hero button, and check the app at `/app/`:
 - [ ] The wind and lightning panels load, and the wind pill says "Awaiting instructor review".
 - [ ] Plan ahead shows dots on the days that have a forecast, and a thunder notice when there is one.
 - [ ] "I'm interested" opens the form, and the Privacy link opens your privacy page.
 
-## 8. Link it from the landing page
+## 8. The landing page button
 
-After the app works, add a button on the landing page, for example:
-
-```html
-<a href="https://app.watersportskaki.sg" class="btn-cta">Check conditions now</a>
-```
+Already done in the landing `index.html`: the hero button now reads "Check windsurfing conditions" and links to `/app/`. Under it, a note says this is a pilot for windsurfing at East Coast, with a small link to the form for asking for another sport. The other form links further down the page are unchanged.
 
 ## 9. Right after launch
 

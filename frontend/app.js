@@ -241,7 +241,7 @@ function renderAboutShort() {
   const s = $("about");
   const p = el("p", "small", "For information only. Not safety advice. ");
   const link = el("a", null, "Privacy");
-  link.href = "https://watersportskaki.sg/privacy.html";
+  link.href = "https://www.watersportskaki.sg/privacy.html";
   link.target = "_blank";
   link.rel = "noopener";
   p.appendChild(link);
@@ -447,6 +447,7 @@ async function init() {
   state.plan.days = upcomingDays();
   fillSelect($("level"), LEVELS.map((l) => ({ slug: l, name: LEVEL_LABELS[l] })), state.level);
   renderAboutShort();
+  $("more-sports").href = CONFIG.INTEREST_URL;
 
   const res = await getJson(catalogActivitiesUrl(CONFIG));
   if (!res.ok) {

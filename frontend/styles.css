@@ -13,6 +13,7 @@ h2{font-family:'Nunito',sans-serif;font-weight:800;color:var(--navy);font-size:1
 h3{font-family:'Nunito',sans-serif;font-weight:800;color:var(--navy);font-size:.95rem;margin-bottom:.35rem}
 .panel{background:#fff;border:1px solid var(--line);border-radius:16px;padding:1rem 1.1rem}
 .panel-title{margin-bottom:.75rem}
+.pilot{margin-top:.8rem}
 .controls{display:grid;grid-template-columns:1fr 1fr;gap:.6rem}
 .field{display:flex;flex-direction:column;gap:.2rem;min-width:0}
 .field:nth-child(2){grid-column:1 / -1;order:3}
