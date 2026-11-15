@@ -64,6 +64,9 @@ async def spot_conditions(
     background.add_task(repo.log_fetches, log_entries)
 
     spot = {"slug": ctx.slug, "name": ctx.name, "lat": ctx.lat, "lng": ctx.lng}
+    if publish and ctx.launch_point:
+        # Same gate as the guidance: a draft shoreline is shown only while provisional guidance is on.
+        spot["launch_point"] = ctx.launch_point
     return build_payload(spot, ctx.activity_slug, level, obs, meta, assessment, publish)
 
 

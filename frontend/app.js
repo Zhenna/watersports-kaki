@@ -408,7 +408,7 @@ async function loadConditions() {
     }
     const payload = await res.json();
     renderNow(buildView(payload), { activityName: state.activity.name, spotName: state.spot.name });
-    windDiagram.update(payload.observations && payload.observations.wind);
+    windDiagram.update(payload.observations && payload.observations.wind, payload.spot && payload.spot.launch_point);
     lastLoad = Date.now();
   } catch (e) {
     if (inflight !== ctrl) return;  // replaced by a newer request

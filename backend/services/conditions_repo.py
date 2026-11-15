@@ -14,6 +14,7 @@ from sqlalchemy.orm import selectinload
 from core.db import get_session
 from models import Spot, Activity, ActivityConditionRule, FeedFetchLog
 from services.conditions_rules import Rule, WindSector
+from services.launch_points import select_launch_point
 
 
 from services.guidance_policy import preview_mode, provisional_guidance, select_sectors  # noqa: E402,F401
@@ -39,6 +40,7 @@ class SpotContext:
     sectors: list
     nea_station_id: Optional[str] = None
     forecast_region: Optional[str] = None
+    launch_point: Optional[dict] = None
 
 
 def load_context(slug: str, activity_slug: str, level: str, include_private: bool = False,
@@ -49,7 +51,8 @@ def load_context(slug: str, activity_slug: str, level: str, include_private: boo
     with get_session() as db:
         spot = db.execute(
             select(Spot).where(Spot.slug == slug)
-            .options(selectinload(Spot.wind_sectors), selectinload(Spot.activities))
+            .options(selectinload(Spot.wind_sectors), selectinload(Spot.activities),
+                     selectinload(Spot.launch_points))
         ).scalar_one_or_none()
         if spot is None or (not spot.is_public and not include_private):
             raise NotFound("Spot not found")
@@ -84,6 +87,8 @@ def load_context(slug: str, activity_slug: str, level: str, include_private: boo
 
         sectors = select_sectors(spot.wind_sectors, act.id, include_private or include_unreviewed)
 
+        launch_point = select_launch_point(spot.launch_points, act.id, include_private or include_unreviewed)
+
         config = act.config or {}
         return SpotContext(
             slug=spot.slug,
@@ -96,6 +101,7 @@ def load_context(slug: str, activity_slug: str, level: str, include_private: boo
             sectors=sectors,
             nea_station_id=spot.nea_station_id,
             forecast_region=spot.forecast_region,
+            launch_point=launch_point,
         )
 
 

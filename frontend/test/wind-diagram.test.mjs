@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { norm, compass, vec, angularSpread, diagramState, arrowSpeedPx, arrowLengthPx, createWindDiagram } from "../wind-diagram.js";
+import { norm, compass, vec, angularSpread, diagramState, arrowSpeedPx, arrowLengthPx, createWindDiagram, shoreState, labelCorners } from "../wind-diagram.js";
 
 // Shape copied from a real /api/spots/<slug>/conditions response.
 const wind = (over = {}) => ({
@@ -125,4 +125,58 @@ test("a page with no usable DOM never breaks the app", () => {
 test("a missing host is ignored", () => {
   const d = createWindDiagram(null);
   assert.doesNotThrow(() => { d.update(wind()); d.clear(); d.destroy(); });
+});
+
+// Shape copied from the API's spot.launch_point.
+const lp = (over = {}) => ({
+  name: "PAssion WaVe @ East Coast launch", lat: 1.311285, lng: 103.952722,
+  shore_bearing_deg: 75, sea_bearing_deg: 165, note: "n", review_status: "unreviewed", ...over,
+});
+
+test("a launch point gives a shoreline, labelled draft until reviewed", () => {
+  const s = shoreState(lp());
+  assert.equal(s.shoreDeg, 75);
+  assert.equal(s.seaDeg, 165);
+  assert.equal(s.draft, true);
+  assert.equal(shoreState(lp({ review_status: "reviewed" })).draft, false);
+  assert.match(diagramState(wind(), lp()).sub, /Shoreline about 75\u00b0, draft\./);
+  assert.doesNotMatch(diagramState(wind(), lp({ review_status: "reviewed" })).sub, /draft/);
+});
+
+test("no launch point means no shoreline and the text is unchanged", () => {
+  for (const none of [undefined, null, {}, "x"]) {
+    assert.equal(diagramState(wind(), none).shore, null);
+  }
+  assert.equal(diagramState(wind()).sub, diagramState(wind(), null).sub);
+  assert.doesNotMatch(diagramState(wind()).sub, /Shoreline/);
+});
+
+test("a launch point with odd numbers is ignored, not drawn", () => {
+  for (const bad of [lp({ shore_bearing_deg: null }), lp({ sea_bearing_deg: NaN }), lp({ shore_bearing_deg: 400 }),
+                     lp({ sea_bearing_deg: 75 }), lp({ sea_bearing_deg: 120 }), lp({ shore_bearing_deg: "75" })]) {
+    assert.equal(shoreState(bad), null);
+  }
+});
+
+test("the sea may be on either side of the shore", () => {
+  assert.equal(shoreState(lp({ sea_bearing_deg: 345 })).seaDeg, 345);
+});
+
+test("the shoreline shows even when the wind reading is unavailable", () => {
+  const s = diagramState(null, lp());
+  assert.equal(s.status, "unavailable");
+  assert.equal(s.shore.shoreDeg, 75);
+});
+
+test("Land and Sea labels go in opposite corners, land on the land side", () => {
+  const { land, sea } = labelCorners(165);   // sea to the south-south-east
+  assert.ok(land[1] < sea[1]);               // land is higher up the panel than sea
+  assert.notDeepEqual(land, sea);
+  const n = labelCorners(0);                 // sea to the north: land is at the bottom
+  assert.ok(n.land[1] > n.sea[1]);
+});
+
+test("shoreline wording has no suitability language", () => {
+  const banned = /safe|good to go|no-go|recommend|ideal|dangerous|offshore|onshore/i;
+  assert.doesNotMatch(diagramState(wind(), lp()).sub, banned);
 });

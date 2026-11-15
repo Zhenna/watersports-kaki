@@ -32,6 +32,7 @@ class Spot(Base):
     checkins   = relationship("Checkin", back_populates="spot", lazy="dynamic")
     activities = relationship("Activity", secondary="spot_activities", lazy="selectin")
     wind_sectors = relationship("SpotWindSector", lazy="selectin")
+    launch_points = relationship("SpotLaunchPoint", lazy="selectin")
 
     def __repr__(self):
         return f"<Spot {self.name}>"

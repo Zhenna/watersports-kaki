@@ -3,7 +3,8 @@
 //
 // Input is observations.wind from the conditions API. Direction is where the wind blows FROM.
 // It fails closed: a missing, stale or invalid reading shows no arrows and says so.
-// It draws no shoreline, no sectors and no wording about suitability. Those wait for reviewed data.
+// The shoreline is drawn only when the API sends spot.launch_point (draft or reviewed, labelled as such).
+// It draws no sectors and no wording about suitability. Those wait for reviewed data.
 
 const NS = "http://www.w3.org/2000/svg";
 const W = 480, H = 150, CX = 240, CY = 80, R = 56;
@@ -32,7 +33,7 @@ export function arrowSpeedPx(knots) { return clamp(14 + knots * 4.5, 14, 110); }
 export function arrowLengthPx(knots) { return clamp(10 + knots * 1.8, 12, 34); }
 
 // Turns observations.wind into what the diagram should show.
-export function diagramState(wind) {
+function windState(wind) {
   const none = { status: "unavailable", main: "Wind direction unavailable", sub: "No arrows are shown without a current reading." };
   if (!wind || typeof wind !== "object") return none;
   if (wind.stale === true) {
@@ -64,9 +65,47 @@ export function diagramState(wind) {
   return { ...base, status: "ok", knots: wind.knots, main: `Wind from ${compass(fromDeg)} (${Math.round(fromDeg)}\u00b0)`, sub: subText };
 }
 
+// spot.launch_point from the API, checked again here. Anything odd means no shoreline is drawn.
+export function shoreState(lp) {
+  if (!lp || typeof lp !== "object") return null;
+  const shore = lp.shore_bearing_deg, sea = lp.sea_bearing_deg;
+  if (!isNum(shore) || !isNum(sea) || shore < 0 || shore > 360 || sea < 0 || sea > 360) return null;
+  const gap = norm(sea - shore);
+  if (Math.abs(gap - 90) > 15 && Math.abs(gap - 270) > 15) return null; // sea must lie across the shore
+  const name = typeof lp.name === "string" && lp.name.trim() ? lp.name.trim() : null;
+  return { shoreDeg: norm(shore), seaDeg: norm(sea), name, draft: lp.review_status !== "reviewed" };
+}
+
+// The corner farthest on the land side and the corner farthest on the sea side, for the Land and Sea labels.
+export function labelCorners(seaDeg) {
+  const [sx, sy] = vec(seaDeg);
+  const corners = [[14, 22], [W - 14, 22], [14, H - 10], [W - 14, H - 10]];
+  let land = null, sea = null, lo = Infinity, hi = -Infinity;
+  for (const c of corners) {
+    const d = (c[0] - CX) * sx + (c[1] - CY) * sy;
+    if (d < lo) { lo = d; land = c; }
+    if (d > hi) { hi = d; sea = c; }
+  }
+  return { land, sea };
+}
+
+export function diagramState(wind, launchPoint) {
+  const st = windState(wind);
+  const shore = shoreState(launchPoint);
+  if (!shore) return { ...st, shore: null };
+  const note = `Shoreline about ${Math.round(shore.shoreDeg)}\u00b0${shore.draft ? ", draft" : ""}.`;
+  return { ...st, shore, sub: `${st.sub} ${note}` };
+}
+
 const CSS = `
 .wsk-wd .wd-svg{display:block;width:100%;height:auto;margin-top:8px}
 .wsk-wd .wd-bg{fill:#eef5fd}
+.wsk-wd .wd-land{fill:#f9ecd8}
+.wsk-wd .wd-sea{fill:#d3e6f8}
+.wsk-wd .wd-shore{stroke:#0d2c5b;stroke-width:2.2;fill:none;vector-effect:non-scaling-stroke}
+.wsk-wd .wd-lbl{font:600 12px Inter,system-ui,sans-serif;fill:#5b6b86;paint-order:stroke;stroke-width:3px;stroke-linejoin:round}
+.wsk-wd .wd-lbl.l{stroke:#f9ecd8}
+.wsk-wd .wd-lbl.s{stroke:#d3e6f8}
 .wsk-wd .wd-ring{fill:none;stroke:#0d2c5b;stroke-opacity:.25;stroke-width:1;vector-effect:non-scaling-stroke}
 .wsk-wd .wd-n{font:600 14px Inter,system-ui,sans-serif;fill:#0d2c5b;text-anchor:middle}
 .wsk-wd .wd-arrow{fill:none;stroke:#2a6fdb;stroke-width:1.3;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke}
@@ -113,6 +152,7 @@ function buildDiagram(host) {
   svgEl("rect", { width: W, height: H, rx: 12 }, clip);
   const frame = svgEl("g", { "clip-path": "url(#wsk-wd-clip)" }, svg);
   svgEl("rect", { class: "wd-bg", width: W, height: H }, frame);
+  const scene = svgEl("g", {}, frame);
   const flow = svgEl("g", {}, frame);
   svgEl("circle", { class: "wd-ring", cx: CX, cy: CY, r: R }, frame);
   const nTick = svgEl("text", { class: "wd-n", x: CX, y: 15 }, frame);
@@ -184,8 +224,25 @@ function buildDiagram(host) {
     const showDot = current.status === "ok" || current.status === "calm" || current.status === "no_speed";
     flow.replaceChildren();
     otherDots.replaceChildren();
+    scene.replaceChildren();
     fromDot.style.display = showDot ? "" : "none";
-    stationLabel.textContent = current.station || "";
+
+    const shore = current.shore;
+    if (shore) {
+      const g = svgEl("g", { transform: `rotate(${shore.seaDeg - 180} ${CX} ${CY})` }, scene);
+      svgEl("rect", { class: "wd-land", x: -600, y: -600, width: 1680, height: 600 + CY }, g);
+      svgEl("rect", { class: "wd-sea", x: -600, y: CY, width: 1680, height: 700 }, g);
+      svgEl("line", { class: "wd-shore", x1: -600, y1: CY, x2: 1080, y2: CY }, g);
+      const { land, sea } = labelCorners(shore.seaDeg);
+      for (const [pt, cls, text] of [[land, "l", "Land"], [sea, "s", "Sea"]]) {
+        const t = svgEl("text", { class: `wd-lbl ${cls}`, x: pt[0], y: pt[1], "text-anchor": pt[0] < CX ? "start" : "end" }, scene);
+        t.textContent = text;
+      }
+      const place = shore.name ? `Shore at ${shore.name}` : "Shoreline";
+      stationLabel.textContent = shore.draft ? `${place} (draft)` : place;
+    } else {
+      stationLabel.textContent = current.station || "";
+    }
 
     if (showDot) {
       const [vx, vy] = vec(current.fromDeg);
@@ -216,9 +273,9 @@ function buildDiagram(host) {
   if (typeof document.addEventListener === "function") document.addEventListener("visibilitychange", onVisibility);
 
   return {
-    // `wind` is observations.wind from the API (or null).
-    update(wind) { current = diagramState(wind); render(); },
-    clear() { stop(); current = null; flow.replaceChildren(); host.hidden = true; },
+    // `wind` is observations.wind from the API (or null). `launchPoint` is spot.launch_point (or undefined).
+    update(wind, launchPoint) { current = diagramState(wind, launchPoint); render(); },
+    clear() { stop(); current = null; flow.replaceChildren(); scene.replaceChildren(); host.hidden = true; },
     destroy() {
       stop();
       if (typeof document.removeEventListener === "function") document.removeEventListener("visibilitychange", onVisibility);
@@ -251,10 +308,10 @@ export function createWindDiagram(host) {
   }
 
   return {
-    update(wind) {
+    update(wind, launchPoint) {
       const d = get();
       if (!d) return;
-      try { d.update(wind); } catch (err) { disable(err); }
+      try { d.update(wind, launchPoint); } catch (err) { disable(err); }
     },
     clear() { if (inner) { try { inner.clear(); } catch (err) { disable(err); } } },
     destroy() { if (inner) { try { inner.destroy(); } catch (err) { /* already gone */ } } inner = null; },

@@ -64,6 +64,39 @@ class SpotWindSector(Base):
     reviewed_at     = Column(DateTime(timezone=True), nullable=True)
 
 
+class SpotLaunchPoint(Base):
+    """
+    Where people launch for a shore-based sport at a spot, and the shoreline there.
+    Optional: a spot with no launch point behaves exactly as before. Bearings are compass
+    degrees. shore_bearing_deg is the direction the shoreline runs along. sea_bearing_deg is
+    the direction you face to look at the sea, so the two are about 90 degrees apart.
+    activity_id empty means every activity at the spot. Rows without reviewed_by are
+    unreviewed and are shown only when provisional guidance is on, labelled as draft.
+    """
+    __tablename__ = "spot_launch_points"
+    __table_args__ = (
+        CheckConstraint("shore_bearing_deg between 0 and 360", name="ck_spot_launch_points_shore"),
+        CheckConstraint("sea_bearing_deg between 0 and 360", name="ck_spot_launch_points_sea"),
+        CheckConstraint("lat between -90 and 90 and lng between -180 and 180",
+                        name="ck_spot_launch_points_coords"),
+    )
+
+    id                = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4,
+                               server_default=text("gen_random_uuid()"))
+    spot_id           = Column(UUID(as_uuid=True), ForeignKey("spots.id", ondelete="CASCADE"),
+                               nullable=False, index=True)
+    activity_id       = Column(UUID(as_uuid=True), ForeignKey("activities.id", ondelete="CASCADE"),
+                               nullable=True)
+    name              = Column(String(120), nullable=False)
+    lat               = Column(Float, nullable=False)
+    lng               = Column(Float, nullable=False)
+    shore_bearing_deg = Column(Float, nullable=False)
+    sea_bearing_deg   = Column(Float, nullable=False)
+    note              = Column(Text, nullable=True)
+    reviewed_by       = Column(String(100), nullable=True)
+    reviewed_at       = Column(DateTime(timezone=True), nullable=True)
+
+
 class WeatherStation(Base):
     __tablename__ = "weather_stations"
     __table_args__ = (UniqueConstraint("source", "station_id", name="uq_weather_station"),)
