@@ -232,33 +232,44 @@ test("not-assessed items are listed in a fixed order", () => {
   assert.deepEqual(notAssessed({ wind_status: "unavailable" }), []);
 });
 
-test("quiet lightning data is a short neutral card, never an all-clear", () => {
+test("quiet lightning is a short neutral panel, never an all-clear, with the rest as details", () => {
   const c = buildView(TWO).lightningCard;
   assert.equal(c.kind, "quiet");
-  assert.equal(c.pill, "No strikes observed nearby");
-  assert.equal(c.text, "No strikes within 20 km in the last 30 min. This is not an all-clear.");
-  assert.equal(c.sub, "Nearest strike: 44.3 km. Checked 20:38 SGT, just now.");
+  assert.equal(c.headline, "No strikes observed");
+  assert.equal(c.pill, "Not an all-clear");
+  assert.equal(c.line, "Within 20 km, last 30 min");
+  assert.deepEqual(c.detail, [
+    "No strikes within 20 km in the last 30 minutes. This is not an all-clear.",
+    "Nearest strike: 44.3 km.",
+    "Checked 20:38 SGT, just now.",
+    "Lightning data can lag by a few minutes.",
+  ]);
 });
 
-test("nearby lightning is one prominent card and is not repeated in the guidance", () => {
+test("nearby lightning is one prominent panel and is not repeated in the wind guidance", () => {
   const v = buildView(withLightning(3, 8.2));
-  assert.equal(v.lightningCard.kind, "alert");
-  assert.equal(v.lightningCard.pill, "Lightning detected nearby");
-  assert.match(v.lightningCard.text, /3 strikes within 20 km in the last 30 min\. Nearest: 8\.2 km\./);
-  assert.match(v.lightningCard.text, /official advisories/);
+  const c = v.lightningCard;
+  assert.equal(c.kind, "alert");
+  assert.equal(c.headline, "Lightning detected nearby");
+  assert.equal(c.pill, "Follow official advisories");
+  assert.equal(c.line, "3 strikes within 20 km \u00b7 nearest 8.2 km");
+  assert.match(c.detail.join(" "), /Follow official advisories and your operator's procedures/);
   assert.ok(!v.guidance.flags.some((f) => /Lightning/.test(f.message)));
-  assert.doesNotMatch(v.guidance.summary, /Lightning/);
+  assert.doesNotMatch(v.guidance.summary ?? "", /Lightning/);
+  assert.equal(buildView(withLightning(1, 5)).lightningCard.line, "1 strike within 20 km \u00b7 nearest 5 km");
 });
 
-test("missing or old lightning data is a visible card, not silence", () => {
+test("missing or old lightning data is a visible panel, not silence", () => {
   assert.equal(buildAlert(null).title, "Lightning data unavailable");
   const missing = structuredClone(TWO);
   missing.observations.lightning = null;
-  assert.equal(buildView(missing).lightningCard.kind, "unavailable");
-  assert.equal(buildView(missing).lightningCard.pill, "Lightning data unavailable");
+  const m = buildView(missing).lightningCard;
+  assert.equal(m.kind, "unavailable");
+  assert.equal(m.headline, "Lightning data unavailable");
+  assert.equal(m.pill, "Check official advisories");
   const old = structuredClone(TWO);
   old.observations.lightning.stale = true;
-  assert.equal(buildView(old).lightningCard.pill, "Lightning data is out of date");
+  assert.equal(buildView(old).lightningCard.headline, "Lightning data is out of date");
   assert.equal(buildAlert({ strikes_within_radius: 0, radius_km: 20, lookback_min: 30, stale: false }), null);
   assert.equal(buildAlert({ strikes_within_radius: 1, nearest_km: 2, radius_km: 20, lookback_min: 30 }).title, "Lightning data is out of date");
 });
@@ -276,7 +287,7 @@ test("missing wind shows unavailable, and says when no station is close enough",
   assert.equal(v.wind, null);
   assert.equal(v.headline, null);
   assert.equal(v.windMessage, "Wind data unavailable.");
-  assert.equal(v.lightningCard.pill, "Lightning data unavailable");
+  assert.equal(v.lightningCard.headline, "Lightning data unavailable");
   assert.equal(v.guidance.statusLabel, "Assessment unavailable");
   assert.match(v.guidance.summary, /Wind assessment unavailable: wind data unavailable/);
   assert.match(v.guidance.summary, /Check official advisories/);
@@ -318,7 +329,7 @@ test("no verdict wording in any label or fallback", () => {
   const banned = /good to go|safe to|get off the water|cat 1|cancel/i;
   for (const label of Object.values(STATUS_LABELS)) assert.doesNotMatch(label, banned);
   assert.doesNotMatch(errorMessage("http", 500), banned);
-  assert.doesNotMatch(buildView(withLightning(2, 5)).lightningCard.text, banned);
+  assert.doesNotMatch(buildView(withLightning(2, 5)).lightningCard.detail.join(" "), banned);
   const g = buildView(TWO).guidance;
   assert.doesNotMatch(`${g.statusLabel} ${g.summary} ${g.detail} ${g.limitations}`, banned);
 });
@@ -351,14 +362,31 @@ test("the planner uses AM and PM only, with no hour ranges", () => {
   assert.doesNotMatch(JSON.stringify(SLOTS), /\d/);
 });
 
-test("the plan summary and form hint match the form's options", () => {
-  const sat = { iso: "2026-11-21", short: "Sat", weekend: true, label: "Sat, 21 Nov" };
-  const mon = { iso: "2026-11-16", short: "Mon", weekend: false, label: "Mon, 16 Nov" };
-  assert.equal(planSummary(sat, "AM"), "Sat, 21 Nov \u00b7 AM");
-  assert.equal(formHint(sat, "PM"), "In the form, tick Sat PM.");
-  assert.equal(formHint(mon, "AM"), "The form lists weekends and weekday evenings.");
-  assert.equal(planSummary(null, "AM"), "");
-  assert.equal(formHint(null, "AM"), "");
+test("the plan summary and form hint match the form's options, for one slot or both", () => {
+  const sat = { iso: "2026-11-21", short: "Sat", weekend: true, label: "Sat, 21 Nov", long: "Saturday, 21 November", num: 21 };
+  const mon = { iso: "2026-11-16", short: "Mon", weekend: false, label: "Mon, 16 Nov", num: 16 };
+  assert.equal(planSummary(sat, ["AM"]), "Saturday, 21 November \u00b7 AM");
+  assert.equal(planSummary(sat, ["AM", "PM"]), "Saturday, 21 November \u00b7 AM and PM");
+  assert.equal(planSummary(sat, "PM"), "Saturday, 21 November \u00b7 PM");
+  assert.equal(formHint(sat, ["PM"]), "In the form, tick Sat PM.");
+  assert.equal(formHint(sat, ["AM", "PM"]), "In the form, tick Sat AM and Sat PM.");
+  assert.equal(formHint(mon, ["AM"]), "Weekday times aren't in the form yet.");
+  assert.doesNotMatch(formHint(mon, ["AM", "PM"]), /evening/i);
+  assert.equal(planSummary(null, ["AM"]), "");
+  assert.equal(formHint(null, ["AM"]), "");
+});
+
+test("each date also has a full name for the selected-session card", () => {
+  const days = upcomingDays(new Date("2026-11-15T10:00:00+08:00"));
+  assert.equal(days[0].long, "Monday, 16 November");
+  assert.equal(days[5].long, "Saturday, 21 November");
+  assert.equal(days[6].long, "Sunday, 22 November");
+});
+
+test("each date has a short day name and a number for the scrolling row", () => {
+  const days = upcomingDays(new Date("2026-11-15T10:00:00+08:00"));
+  assert.deepEqual(days.map((d) => `${d.short} ${d.num}`),
+    ["Mon 16", "Tue 17", "Wed 18", "Thu 19", "Fri 20", "Sat 21", "Sun 22"]);
 });
 
 // ---------- plan ahead ----------
@@ -387,42 +415,55 @@ const FORECAST = {
   days: [fday("2026-11-16", 10, 20, "within", "within"), fday("2026-11-17", 2, 6, "outside", "below")],
 };
 
-test("a forecast day reads like the live view, with the weather for the chosen time", () => {
-  const am = buildForecastView(FORECAST, MON, "AM");
+test("a forecast day: wind first when it is fine, with the weather for the chosen time", () => {
+  const am = buildForecastView(FORECAST, MON, ["AM"]);
   assert.equal(am.state, "ok");
+  assert.equal(am.thunderNotice, null);
+  assert.deepEqual(am.weatherLines, ["Morning: Fair (Day)"]);
   assert.equal(am.headline, "Light breeze to moderate breeze");
   assert.equal(am.pill, "Within provisional range");
   assert.equal(am.windLine, "5.4 to 10.8 kn \u00b7 From NE");
-  assert.equal(am.weatherLine, "Morning: Fair (Day)");
-  assert.equal(am.thundery, false);
   assert.equal(am.summary, null);
-  assert.equal(am.limits, "Wind speed only. Gusts and shore-relative direction not assessed. Ranges provisional.");
-  assert.match(am.note, /Island-wide/);
-  const pm = buildForecastView(FORECAST, MON, "PM");
-  assert.equal(pm.weatherLine, "Afternoon: Thundery Showers");
-  assert.equal(pm.thundery, true);
+  assert.equal(
+    am.small,
+    "Island-wide NEA forecast, not specific to this spot. " +
+    "Wind speed only. Gusts and shore-relative direction not assessed. Ranges provisional.",
+  );
+});
+
+test("thunder comes first and is said once, not three times", () => {
+  const pm = buildForecastView(FORECAST, MON, ["PM"]);
+  assert.equal(pm.thunderNotice, "Thundery showers forecast for the afternoon.");
+  assert.deepEqual(pm.weatherLines, []);          // the thundery slot is not repeated as a weather line
+  const both = buildForecastView(FORECAST, MON, ["AM", "PM"]);
+  assert.equal(both.thunderNotice, "Thundery showers forecast for the afternoon.");
+  assert.deepEqual(both.weatherLines, ["Morning: Fair (Day)"]);
+  const p = structuredClone(FORECAST);
+  p.days[0].slots.AM = { text: "Thundery Showers", thundery: true, source: "nea_24h" };
+  assert.equal(buildForecastView(p, MON, ["AM", "PM"]).thunderNotice,
+               "Thundery showers forecast for the morning and afternoon.");
 });
 
 test("a forecast day below the range says so", () => {
-  assert.equal(buildForecastView(FORECAST, TUE, "AM").pill, "Below provisional range");
+  assert.equal(buildForecastView(FORECAST, TUE, ["AM"]).pill, "Below provisional range");
 });
 
-test("a range that spans the reference range is not called suitable", () => {
+test("a range that spans the reference range is not called suitable, and is said once", () => {
   const p = structuredClone(FORECAST);
   p.days[0].guidance.wind_status = "inconclusive";
   p.days[0].guidance.wind_position = "mixed";
-  const v = buildForecastView(p, MON, "AM");
+  const v = buildForecastView(p, MON, ["AM"]);
   assert.equal(v.pill, "Spans the range");
-  assert.equal(v.summary, "The forecast wind range spans the reference range.");
+  assert.equal(v.summary, null);                  // the pill already says it
 });
 
 test("a day beyond the outlook says so, and a missing forecast is never invented", () => {
-  const v = buildForecastView(FORECAST, NEXT_MON, "AM");
+  const v = buildForecastView(FORECAST, NEXT_MON, ["AM"]);
   assert.equal(v.state, "none");
   assert.equal(v.message, "No forecast for Mon, 23 Nov yet. NEA's outlook covers the next 4 days.");
-  assert.equal(buildForecastView({ available: false, days: [] }, MON, "AM").message, "Forecast unavailable right now.");
-  assert.equal(buildForecastView(null, MON, "AM").message, "Forecast unavailable right now.");
-  assert.equal(buildForecastView(FORECAST, null, "AM").message, "Choose a day.");
+  assert.equal(buildForecastView({ available: false, days: [] }, MON, ["AM"]).message, "Forecast unavailable right now.");
+  assert.equal(buildForecastView(null, MON, ["AM"]).message, "Forecast unavailable right now.");
+  assert.equal(buildForecastView(FORECAST, null, ["AM"]).message, "Choose a day.");
 });
 
 test("an old or unavailable forecast fails closed", () => {
@@ -431,16 +472,21 @@ test("an old or unavailable forecast fails closed", () => {
   p.days[0].guidance.wind_status = "unavailable";
   p.days[0].guidance.wind_position = null;
   p.days[0].guidance.wind_reasons = ["wind data is out of date"];
-  const v = buildForecastView(p, MON, "AM");
+  const v = buildForecastView(p, MON, ["AM"]);
   assert.equal(v.pill, "Assessment unavailable");
   assert.match(v.summary, /Wind assessment unavailable: wind data is out of date/);
   assert.equal(v.stale, true);
 });
 
+test("the forecast never mentions lightning observations, which are live only", () => {
+  const v = buildForecastView(FORECAST, MON, ["AM", "PM"]);
+  assert.doesNotMatch(JSON.stringify(v), /lightning|strike/i);
+});
+
 test("forecast wording has no verdict language", () => {
   const banned = /good to go|safe to|get off the water|cat 1|cancel/i;
   for (const day of [MON, TUE]) {
-    const v = buildForecastView(FORECAST, day, "PM");
-    assert.doesNotMatch(`${v.headline} ${v.pill} ${v.windLine} ${v.weatherLine} ${v.limits}`, banned);
+    const v = buildForecastView(FORECAST, day, ["AM", "PM"]);
+    assert.doesNotMatch(`${v.thunderNotice} ${v.weatherLines.join(" ")} ${v.headline} ${v.pill} ${v.windLine} ${v.small}`, banned);
   }
 });

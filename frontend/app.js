@@ -17,7 +17,7 @@ function el(tag, cls, text) {
 
 const state = {
   activities: [], spots: [], activity: null, spot: null, level: "beginner", tab: "now",
-  plan: { days: [], dayIdx: 0, slot: "AM" },
+  plan: { days: [], dayIdx: 0, slots: ["AM"] },
   forecast: { key: null, status: "idle", payload: null },
 };
 let lastLoad = 0;
@@ -59,9 +59,8 @@ function updateUrl() {
 }
 
 function clearNow() {
-  for (const id of ["headline", "lightning-alert", "details-body"]) $(id).replaceChildren();
-  $("lightning-alert").hidden = true;
-  $("details").hidden = true;
+  for (const id of ["wind-panel", "lightning-panel"]) $(id).replaceChildren();
+  $("lightning-panel").className = "card";
 }
 
 function showBanner(message, kind, withNote = false) {
@@ -101,18 +100,6 @@ function showFatal(message, withNote = true) {
   renderAboutShort();
 }
 
-function advisoryLink(v) {
-  const a = v.advisories[0];
-  if (!a) return null;
-  const link = el("a", null, a.label);
-  link.href = a.url;
-  link.target = "_blank";
-  link.rel = "noopener";
-  const p = el("p", "small", "Official advisories: ");
-  p.appendChild(link);
-  return p;
-}
-
 // ---------- tabs ----------
 function setTab(tab) {
   state.tab = tab;
@@ -127,11 +114,29 @@ function setTab(tab) {
 }
 
 // ---------- right now ----------
-function renderHeadline(v, ctx) {
-  const s = $("headline");
+function block(title) {
+  const b = el("div", "block");
+  b.appendChild(el("h3", null, title));
+  return b;
+}
+
+function advisoryLink(v) {
+  const a = v.advisories[0];
+  if (!a) return null;
+  const link = el("a", null, a.label);
+  link.href = a.url;
+  link.target = "_blank";
+  link.rel = "noopener";
+  const p = el("p", "small", "Official advisories: ");
+  p.appendChild(link);
+  return p;
+}
+
+function renderWindPanel(v, ctx) {
+  const s = $("wind-panel");
   s.replaceChildren();
   const tagrow = el("div", "tagrow");
-  tagrow.appendChild(el("span", "chip-tag", "Right now"));
+  tagrow.appendChild(el("span", "chip-tag", "Wind"));
   tagrow.appendChild(el("span", "small", `${v.levelLabel} ${ctx.activityName.toLowerCase()}`));
   s.appendChild(tagrow);
   s.appendChild(el("p", "headline", v.headline || "Wind data unavailable"));
@@ -139,35 +144,9 @@ function renderHeadline(v, ctx) {
   if (v.windLine) s.appendChild(el("p", "windline", v.windLine));
   if (v.guidance.summary) s.appendChild(el("p", "summary", v.guidance.summary));
   if (!v.wind && v.windMessage) s.appendChild(el("p", "muted", v.windMessage));
-}
 
-// Only when there is something to act on. Quiet lightning data lives in the details.
-function renderLightningAlert(v) {
-  const s = $("lightning-alert");
-  const c = v.lightningCard;
-  s.replaceChildren();
-  if (c.kind === "quiet") {
-    s.hidden = true;
-    return;
-  }
-  s.hidden = false;
-  s.className = c.kind === "alert" ? "alert-box" : "alert-box unavailable";
-  s.appendChild(el("h2", null, c.pill));
-  s.appendChild(el("p", c.kind === "alert" ? "strong" : null, c.text));
-  if (c.sub) s.appendChild(el("p", "small", c.sub));
-  const link = advisoryLink(v);
-  if (link) s.appendChild(link);
-}
-
-function block(title) {
-  const b = el("div", "block");
-  b.appendChild(el("h3", null, title));
-  return b;
-}
-
-function renderDetails(v) {
-  const body = $("details-body");
-  body.replaceChildren();
+  const d = el("details");
+  d.appendChild(el("summary", null, "Details"));
 
   const summary = block("Conditions summary");
   if (v.guidance.detail) summary.appendChild(el("p", null, v.guidance.detail));
@@ -182,7 +161,7 @@ function renderDetails(v) {
     }
     summary.appendChild(ul);
   }
-  body.appendChild(summary);
+  d.appendChild(summary);
 
   const source = block("Source and limits");
   if (v.wind) {
@@ -201,21 +180,37 @@ function renderDetails(v) {
   }
   if (v.guidance.limitations) source.appendChild(el("p", "small", v.guidance.limitations));
   if (v.sources.length) source.appendChild(el("p", "small", `Source: ${v.sources.join(", ")}.`));
-  body.appendChild(source);
+  d.appendChild(source);
 
+  d.appendChild(el("p", "small", v.disclaimer));
+  s.appendChild(d);
+}
+
+// Lightning is real time only, so it has its own panel and never appears in the forecast.
+function renderLightningPanel(v) {
+  const s = $("lightning-panel");
   const c = v.lightningCard;
-  const lightning = block("Lightning");
-  if (c.kind === "quiet") {
-    lightning.appendChild(el("p", null, `${c.pill}. ${c.text}`));
-    if (c.sub) lightning.appendChild(el("p", "small", c.sub));
-    lightning.appendChild(el("p", "small", "Lightning data can lag by a few minutes."));
-  } else {
-    lightning.appendChild(el("p", "small", c.sub || "See the notice above."));
-  }
-  body.appendChild(lightning);
+  s.replaceChildren();
+  s.className = c.kind === "alert" ? "card alert" : c.kind === "unavailable" ? "card unavailable" : "card";
 
-  body.appendChild(el("p", "small", v.disclaimer));
-  $("details").hidden = false;
+  const tagrow = el("div", "tagrow");
+  tagrow.appendChild(el("span", "chip-tag", "Lightning"));
+  tagrow.appendChild(el("span", "small", "Live"));
+  s.appendChild(tagrow);
+  s.appendChild(el("p", "headline", c.headline));
+  s.appendChild(el("span", "pill", c.pill));
+  if (c.line) s.appendChild(el("p", "windline", c.line));
+  if (c.kind !== "quiet") {
+    const link = advisoryLink(v);
+    if (link) s.appendChild(link);
+  }
+
+  const d = el("details");
+  d.appendChild(el("summary", null, "Details"));
+  const b = el("div", "block");
+  for (const line of c.detail) b.appendChild(el("p", "small", line));
+  d.appendChild(b);
+  s.appendChild(d);
 }
 
 function renderAboutShort() {
@@ -228,9 +223,8 @@ function renderNow(v, ctx) {
   hideBanner();
   $("context").textContent = `Conditions at ${ctx.spotName}`;
   $("updated").textContent = v.updated ? `Updated ${v.updated} SGT` : "";
-  renderLightningAlert(v);
-  renderHeadline(v, ctx);
-  renderDetails(v);
+  renderWindPanel(v, ctx);
+  renderLightningPanel(v);
   renderAboutShort();
 }
 
@@ -247,35 +241,58 @@ function renderForecastBlock() {
     wrap.appendChild(el("p", "muted", `Forecast unavailable right now. ${FAIL_CLOSED_NOTE}`));
     return wrap;
   }
-  const v = buildForecastView(f.payload, day, state.plan.slot);
+  const v = buildForecastView(f.payload, day, state.plan.slots);
   if (v.state === "none") {
     wrap.appendChild(el("p", "muted", v.message));
     return wrap;
   }
-  wrap.appendChild(el("p", "label", "Forecast"));
+  wrap.appendChild(el("p", "label", `Forecast for ${day.label}`));
+  if (v.thunderNotice) {
+    const n = el("div", "notice");
+    n.appendChild(el("p", "strong", v.thunderNotice));
+    n.appendChild(el("p", "small", "Check updated forecasts and official warnings on the day."));
+    wrap.appendChild(n);
+  }
+  for (const line of v.weatherLines) wrap.appendChild(el("p", null, line));
   if (v.headline) wrap.appendChild(el("p", "headline", v.headline));
   wrap.appendChild(el("span", "pill", v.pill));
   if (v.windLine) wrap.appendChild(el("p", "windline", v.windLine));
-  if (v.weatherLine) wrap.appendChild(el("p", null, v.weatherLine));
-  if (v.thundery) wrap.appendChild(el("p", "strong", "Thundery showers in the forecast."));
   if (v.summary) wrap.appendChild(el("p", "summary", v.summary));
   if (v.stale) wrap.appendChild(el("p", "small", "This forecast is out of date."));
-  if (v.limits) wrap.appendChild(el("p", "small", v.limits));
-  if (v.note) wrap.appendChild(el("p", "small", v.note));
+
+  const d = el("details");
+  d.appendChild(el("summary", null, "Details"));
+  const b = el("div", "block");
+  if (v.small) b.appendChild(el("p", "small", v.small));
+  b.appendChild(el("p", "small", "Lightning is checked live on the day. See Right now."));
+  d.appendChild(b);
+  wrap.appendChild(d);
   return wrap;
+}
+
+function toggleSlot(key) {
+  const on = state.plan.slots.includes(key);
+  if (on && state.plan.slots.length === 1) return;   // keep at least one selected
+  state.plan.slots = SLOTS.map((x) => x.key).filter((k) => (k === key ? !on : state.plan.slots.includes(k)));
+  renderPlan();
 }
 
 function renderPlan() {
   const s = $("plan");
   s.replaceChildren();
-  s.appendChild(el("h2", null, "Find your Kakis"));
-  s.appendChild(el("p", "plan-sub", "When would you like to get on the water?"));
+  s.appendChild(el("h2", null, "Find your next Water Day"));
+  const where = state.activity && state.spot ? `${state.activity.name} \u00b7 ${state.spot.name}` : null;
+  if (where) s.appendChild(el("p", "plan-sub", `${where} \u00b7 ${LEVEL_LABELS[state.level] ?? state.level}`));
+  s.appendChild(el("p", "ask", "When would you like to go?"));
 
   const chips = el("div", "chips");
   state.plan.days.forEach((d, i) => {
-    const b = el("button", i === state.plan.dayIdx ? "chip on" : "chip", d.label);
+    const b = el("button", i === state.plan.dayIdx ? "chip on" : "chip");
     b.type = "button";
+    b.setAttribute("aria-label", d.label);
     b.setAttribute("aria-pressed", String(i === state.plan.dayIdx));
+    b.appendChild(el("span", "chip-dow", d.short));
+    b.appendChild(el("span", "chip-num", String(d.num)));
     b.addEventListener("click", () => { state.plan.dayIdx = i; renderPlan(); });
     chips.appendChild(b);
   });
@@ -283,30 +300,34 @@ function renderPlan() {
 
   const slots = el("div", "slots");
   for (const sl of SLOTS) {
-    const b = el("button", sl.key === state.plan.slot ? "slot on" : "slot");
+    const on = state.plan.slots.includes(sl.key);
+    const b = el("button", on ? "slot on" : "slot");
     b.type = "button";
-    b.setAttribute("aria-pressed", String(sl.key === state.plan.slot));
+    b.setAttribute("aria-pressed", String(on));
     b.appendChild(el("span", "slot-name", sl.key));
     b.appendChild(el("span", "slot-sub", sl.sub));
-    b.addEventListener("click", () => { state.plan.slot = sl.key; renderPlan(); });
+    b.addEventListener("click", () => toggleSlot(sl.key));
     slots.appendChild(b);
   }
   s.appendChild(slots);
+  s.appendChild(el("p", "small", "Pick AM, PM or both."));
 
   s.appendChild(renderForecastBlock());
 
   const day = state.plan.days[state.plan.dayIdx];
-  const foot = el("div", "plan-foot");
-  const left = el("div");
-  left.appendChild(el("p", "summary-line", planSummary(day, state.plan.slot)));
-  left.appendChild(el("p", "small", `Interest only. Nothing is booked. ${formHint(day, state.plan.slot)}`));
-  foot.appendChild(left);
-  const link = el("a", "cta", "I'm interested \u2192");
+  const session = el("div", "session");
+  session.appendChild(el("p", "label", "Selected session"));
+  session.appendChild(el("p", "session-title", planSummary(day, state.plan.slots)));
+  if (where) session.appendChild(el("p", "small", where));
+  session.appendChild(el("p", "small", formHint(day, state.plan.slots)));
+  s.appendChild(session);
+
+  const link = el("a", "cta wide", "I'm interested \u2192");
   link.href = CONFIG.INTEREST_URL;
   link.target = "_blank";
   link.rel = "noopener";
-  foot.appendChild(link);
-  s.appendChild(foot);
+  s.appendChild(link);
+  s.appendChild(el("p", "small centered", "Interest only. Nothing is booked. We'll email you when others with similar plans sign up."));
 }
 
 function forecastKey() {

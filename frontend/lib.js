@@ -252,6 +252,9 @@ function limitationsText(p, g) {
 // ---------- planner: upcoming weekend days and AM or PM ----------
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const DAY_LONG = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const MONTH_LONG = ["January", "February", "March", "April", "May", "June", "July", "August",
+                    "September", "October", "November", "December"];
 
 // AM and PM only, so a small number of people are not spread across many time cells.
 export const SLOTS = [{ key: "AM", sub: "Morning" }, { key: "PM", sub: "Afternoon" }];
@@ -271,36 +274,62 @@ export function upcomingDays(now = new Date(), count = 7) {
     out.push({
       iso: dt.toISOString().slice(0, 10),
       short: DAY_NAMES[wd],
+      num: dt.getUTCDate(),
       weekend: wd === 6 || wd === 0,
       label: `${DAY_NAMES[wd]}, ${dt.getUTCDate()} ${MONTH_NAMES[dt.getUTCMonth()]}`,
+      long: `${DAY_LONG[wd]}, ${dt.getUTCDate()} ${MONTH_LONG[dt.getUTCMonth()]}`,
     });
   }
   return out;
 }
 
-export function planSummary(day, slotKey) {
-  return day ? `${day.label} \u00b7 ${slotKey}` : "";
+const asList = (x) => (Array.isArray(x) ? x : [x]);
+
+export function planSummary(day, slotKeys) {
+  return day ? `${day.long ?? day.label} \u00b7 ${asList(slotKeys).join(" and ")}` : "";
 }
 
-// The early-access form lists "Sat AM", "Sat PM", "Sun AM", "Sun PM" and weekday evenings.
-export function formHint(day, slotKey) {
+// The early-access form lists "Sat AM", "Sat PM", "Sun AM" and "Sun PM". There are no evening slots,
+// and the form has no weekday times yet, so weekdays say so instead of pointing at an option.
+export function formHint(day, slotKeys) {
   if (!day) return "";
-  return day.weekend ? `In the form, tick ${day.short} ${slotKey}.` : "The form lists weekends and weekday evenings.";
+  if (!day.weekend) return "Weekday times aren't in the form yet.";
+  return `In the form, tick ${asList(slotKeys).map((k) => `${day.short} ${k}`).join(" and ")}.`;
 }
 
+// Lightning is real time only and has its own panel: a headline, one line, and details.
 function lightningCard(li) {
   const a = buildAlert(li);
   if (a && a.kind === "lightning") {
-    return { kind: "alert", pill: a.title, text: a.text, sub: withAge("Checked", li.fetched_at, li.age_min) };
+    const n = li.strikes_within_radius;
+    const near = li.nearest_km != null ? ` \u00b7 nearest ${li.nearest_km} km` : "";
+    return {
+      kind: "alert",
+      headline: a.title,
+      pill: "Follow official advisories",
+      line: `${n} strike${n === 1 ? "" : "s"} within ${li.radius_km} km${near}`,
+      detail: [
+        `${n} strike${n === 1 ? "" : "s"} within ${li.radius_km} km in the last ${li.lookback_min} minutes.`,
+        "Follow official advisories and your operator's procedures.",
+        withAge("Checked", li.fetched_at, li.age_min),
+      ].filter(Boolean),
+    };
   }
-  if (a) return { kind: "unavailable", pill: a.title, text: a.text, sub: null };
+  if (a) {
+    return { kind: "unavailable", headline: a.title, pill: "Check official advisories", line: null, detail: [a.text] };
+  }
   const checked = withAge("Checked", li.fetched_at, li.age_min);
-  const near = li.nearest_km != null ? `Nearest strike: ${li.nearest_km} km.` : null;
   return {
     kind: "quiet",
-    pill: "No strikes observed nearby",
-    text: `No strikes within ${li.radius_km} km in the last ${li.lookback_min} min. This is not an all-clear.`,
-    sub: [near, checked ? `${checked}.` : null].filter(Boolean).join(" ") || null,
+    headline: "No strikes observed",
+    pill: "Not an all-clear",
+    line: `Within ${li.radius_km} km, last ${li.lookback_min} min`,
+    detail: [
+      `No strikes within ${li.radius_km} km in the last ${li.lookback_min} minutes. This is not an all-clear.`,
+      li.nearest_km != null ? `Nearest strike: ${li.nearest_km} km.` : null,
+      checked ? `${checked}.` : null,
+      "Lightning data can lag by a few minutes.",
+    ].filter(Boolean),
   };
 }
 
@@ -363,8 +392,9 @@ export function buildView(p) {
   };
 }
 
-// The plan-ahead view for one chosen day and AM or PM, from the /forecast response.
-export function buildForecastView(payload, day, slotKey) {
+// The plan-ahead view for one chosen day and one or both of AM and PM, from the /forecast response.
+// Thunder comes first, then wind. Lightning is not here: it is checked live, under Right now.
+export function buildForecastView(payload, day, slotKeys) {
   if (!payload || payload.available !== true) {
     return { state: "none", message: "Forecast unavailable right now." };
   }
@@ -378,23 +408,26 @@ export function buildForecastView(payload, day, slotKey) {
   }
   const g = f.guidance || {};
   const w = f.wind;
-  const slot = f.slots?.[slotKey] || null;
-  const sub = SLOTS.find((x) => x.key === slotKey)?.sub ?? slotKey;
+  const slots = asList(slotKeys).map((k) => ({
+    name: SLOTS.find((x) => x.key === k)?.sub ?? k,
+    text: f.slots?.[k]?.text ?? null,
+    thundery: !!f.slots?.[k]?.thundery,
+  }));
+  const thunder = slots.filter((x) => x.thundery);
   const range = w
     ? (w.knots_low === w.knots_high ? `${kn(w.knots_low)} kn` : `${kn(w.knots_low)} to ${kn(w.knots_high)} kn`)
     : null;
   return {
     state: "ok",
+    thunderNotice: thunder.length
+      ? `Thundery showers forecast for the ${thunder.map((x) => x.name.toLowerCase()).join(" and ")}.`
+      : null,
+    weatherLines: slots.filter((x) => !x.thundery && x.text).map((x) => `${x.name}: ${x.text}`),
     headline: w ? windHeadline({ knots_min: w.knots_low, knots_max: w.knots_high }) : null,
     pill: g.wind_status === "inconclusive" ? "Spans the range" : pillLabel(g),
     windLine: range ? `${range}${w.direction ? ` \u00b7 From ${w.direction}` : ""}` : null,
-    weatherLine: slot?.text ? `${sub}: ${slot.text}` : null,
-    thundery: !!slot?.thundery,
-    summary: g.wind_status === "inconclusive"
-      ? "The forecast wind range spans the reference range."
-      : guidanceSummary(g),
-    limits: limitationsText(null, g),
+    summary: g.wind_status === "inconclusive" ? null : guidanceSummary(g),
+    small: [payload.note, limitationsText(null, g)].filter(Boolean).join(" "),
     stale: !!f.stale,
-    note: payload.note || null,
   };
 }
