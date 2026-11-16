@@ -14,12 +14,15 @@ from services.forecast import (
 )
 from services.nea import get_wind_speed, get_wind_direction, get_lightning
 from services.nea_forecast import get_24h_forecast, get_four_day_outlook
+from services.nea_tide import TideFeed
+from services.tide_payload import build_tide_block
 
 router = APIRouter()
 
 LEVELS = {"never_tried", "beginner", "intermediate", "advanced"}
 cache = FeedCache(ttl_seconds=60)
 forecast_cache = FeedCache(ttl_seconds=900)   # the 4-day outlook updates every 12 hours
+tide_feed = TideFeed()                        # NEA lists whole months, so twice a day is plenty
 
 
 @router.get("/{slug}/conditions")
@@ -41,10 +44,11 @@ async def spot_conditions(
     except repo.NotSupported as e:
         raise HTTPException(status_code=422, detail=str(e))
 
-    (wind, wind_info), (direction, dir_info), (lightning, li_info) = await asyncio.gather(
+    (wind, wind_info), (direction, dir_info), (lightning, li_info), (tide_table, tide_info) = await asyncio.gather(
         cache.get("wind", get_wind_speed),
         cache.get("wind-direction", get_wind_direction),
         cache.get("lightning", get_lightning),
+        tide_feed.get(),
     )
 
     obs, meta = build_observation(
@@ -60,7 +64,7 @@ async def spot_conditions(
     log_entries = [
         {"source": "nea", "feed": feed, "ok": info["ok"], "error": info["error"],
          "duration_ms": info["duration_ms"]}
-        for feed, info in (("wind", wind_info), ("wind-direction", dir_info), ("lightning", li_info))
+        for feed, info in (("wind", wind_info), ("wind-direction", dir_info), ("lightning", li_info), ("tide-timings", tide_info))
         if not info["cached"]
     ]
     background.add_task(repo.log_fetches, log_entries)
@@ -70,6 +74,9 @@ async def spot_conditions(
         # Same gate as the guidance: a draft shoreline is shown only while provisional guidance is on.
         spot["launch_point"] = ctx.launch_point
     payload = build_payload(spot, ctx.activity_slug, level, obs, meta, assessment, publish)
+    tide = build_tide_block(tide_table, tide_info)
+    payload["observations"]["tide"] = tide
+    payload["observations"]["tide_message"] = None if tide else "Tide data unavailable."
     if publish and ctx.wind_dependent and obs.wind_age_min is not None and obs.wind_age_min <= WIND_STALE_MIN:
         dir_id = (meta.get("direction_station") or {}).get("station_id")
         others = [s["direction_deg"] for s in meta.get("wind_stations") or []
