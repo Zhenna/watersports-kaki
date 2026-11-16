@@ -13,8 +13,7 @@ from services.tide_table import SGT, coverage_end, tide_now
 
 SOURCE = "NEA, from MPA predictions"
 NOTE = ("Predicted, not measured. Heights are metres above Chart Datum, not water depth at the launch. "
-        "NEA doesn't name the station, and other sources can differ by about 15 to 20 minutes. "
-        "The height now is an estimate between the last and next tide.")
+        "NEA doesn't name the station, and other sources can differ by about 15 to 20 minutes.")
 
 
 def _ext(e) -> dict:
@@ -33,6 +32,8 @@ def build_tide_block(table: Optional[dict], info: Optional[dict] = None, now: Op
     day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     chart = [e for e in table["extremes"]
              if day_start - timedelta(hours=9) <= e.at.astimezone(SGT) <= day_start + timedelta(hours=33)]
+    # The tide after the next one, so the card can show the turn that follows. None at the end of the table.
+    after = next((e for e in table["extremes"] if e.at > state["next"].at), None)
     fetched = table.get("fetched_at")
     return {
         "source": SOURCE,
@@ -43,6 +44,7 @@ def build_tide_block(table: Optional[dict], info: Optional[dict] = None, now: Op
         "state": state["state"],
         "previous": _ext(state["previous"]),
         "next": _ext(state["next"]),
+        "after_next": _ext(after) if after else None,
         "height_estimate_m": state["height_estimate_m"],
         "leg_height_m": state["leg_height_m"],
         "leg_midpoint": state["leg_midpoint"].astimezone(SGT).isoformat(),

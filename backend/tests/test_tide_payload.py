@@ -47,6 +47,23 @@ class TideBlock(unittest.TestCase):
         b = build_tide_block(table(), OK, datetime(2026, 11, 3, 12, 0, tzinfo=SGT))   # a three-tide day
         self.assertGreaterEqual(len(b["chart"]), 5)
 
+    def test_the_tide_after_the_next_one_is_included(self):
+        b = build_tide_block(table(), OK, NOW)
+        self.assertEqual((b["after_next"]["kind"], b["after_next"]["height_m"]), ("low", 0.9))
+        self.assertTrue(b["after_next"]["at"].startswith("2026-11-16T21:37"))
+        late = build_tide_block(table(), OK, datetime(2026, 11, 16, 22, 16, tzinfo=SGT))
+        self.assertEqual(late["next"]["kind"], "high")
+        self.assertEqual(late["after_next"]["kind"], "low")                     # alternates with the next tide
+        self.assertTrue(late["after_next"]["at"].startswith("2026-11-17T09:48"))
+
+    def test_after_next_is_none_at_the_very_end_of_the_table(self):
+        t = table()
+        t["extremes"] = t["extremes"][:-1]
+        end = t["extremes"][-2].at + timedelta(minutes=30)
+        b = build_tide_block(t, OK, end)
+        self.assertIsNotNone(b)
+        self.assertIsNone(b["after_next"])
+
     def test_the_caveats_travel_with_the_numbers(self):
         b = build_tide_block(table(), OK, NOW)
         self.assertEqual(b["source"], SOURCE)
