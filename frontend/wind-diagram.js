@@ -130,7 +130,7 @@ const CSS = `
 .wsk-wd .wd-from{fill:#2a6fdb;stroke:#fff;stroke-width:2;vector-effect:non-scaling-stroke}
 .wsk-wd .wd-other{fill:#fff;stroke:#0d2c5b;stroke-opacity:.6;stroke-width:1.2;vector-effect:non-scaling-stroke}
 .wsk-wd .wd-main{margin:8px 0 0;font-weight:600}
-.wsk-wd .wd-main .pill{margin-left:8px;vertical-align:middle;font-weight:600}
+.wsk-wd .wd-main .pill{margin-left:8px;vertical-align:middle}
 .wsk-wd .wd-sub{margin:2px 0 0}
 `;
 

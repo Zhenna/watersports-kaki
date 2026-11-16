@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { hm, sgtDate, tideView, heightAt, chartGeometry, yMaxFor, createTideCard, NEA_TIDE_URL } from "../tide-card.js";
+import { hm, sgtDate, tideView, heightAt, chartGeometry, stripGeometry, yMaxFor, createTideCard, NEA_TIDE_URL, SHOW_HEIGHT_NOW } from "../tide-card.js";
 
 const E = (kind, at, h) => ({ kind, at, height_m: h });
 // The shape the API sends for 16 Nov 2026 at 12:30 Singapore time.
@@ -8,6 +8,7 @@ const tide = (over = {}) => ({
   source: "NEA, from MPA predictions", station: null, datum: "chart_datum", predicted: true,
   state: "rising",
   previous: E("low", "2026-11-16T08:50:00+08:00", 1.7), next: E("high", "2026-11-16T14:20:00+08:00", 2.7),
+  after_next: E("low", "2026-11-16T21:37:00+08:00", 0.9),
   height_estimate_m: 2.5, leg_height_m: 1.0, minutes_to_next: 110,
   today: [E("high", "2026-11-16T03:58:00+08:00", 2.4), E("low", "2026-11-16T08:50:00+08:00", 1.7),
           E("high", "2026-11-16T14:20:00+08:00", 2.7), E("low", "2026-11-16T21:37:00+08:00", 0.9)],
@@ -92,7 +93,7 @@ test("chart geometry covers the whole day inside the plot", () => {
   const g = chartGeometry(tideView(tide(), NOW));
   assert.equal(g.curve.length, 145);
   for (let i = 1; i < g.curve.length; i++) assert.ok(g.curve[i][0] > g.curve[i - 1][0]);
-  for (const [x, y] of g.curve) { assert.ok(x >= 36 && x <= 392); assert.ok(y >= 14 && y <= 140); }
+  for (const [x, y] of g.curve) { assert.ok(x >= 36 && x <= 392); assert.ok(y >= 16 && y <= 120); }
   assert.equal(g.labels.length, 4);
   assert.deepEqual(g.labels.map((l) => l.kind), ["high", "low", "high", "low"]);
   assert.equal(g.labels[2].text, "High 2.7 m 14:20");
@@ -100,6 +101,138 @@ test("chart geometry covers the whole day inside the plot", () => {
   assert.ok(g.leg.x0 < g.leg.x1);
   assert.deepEqual(g.ticks.map((t) => t.text), ["00:00", "06:00", "12:00", "18:00", "24:00"]);
   assert.equal(g.yMax, 3);
+});
+
+test("the small strip has its own box and keeps every point inside it", () => {
+  const v = tideView(tide(), NOW);
+  const g = chartGeometry(v, { h: 38, x0: 2, x1: 398, ytop: 4, ybase: 33 });
+  for (const [x, y] of g.curve) { assert.ok(x >= 2 && x <= 398); assert.ok(y >= 4 && y <= 33); }
+  assert.ok(g.now.y >= 4 && g.now.y <= 33);
+});
+
+test("a chart is only drawn when the points reach both edges of the day", () => {
+  assert.equal(tideView(tide(), NOW).chartOk, true);
+  assert.equal(tideView(tide({ chart: undefined }), NOW).chartOk, false);                       // an older API
+  const noBefore = tide().chart.slice(1);                                                       // nothing before midnight
+  assert.equal(tideView(tide({ chart: noBefore }), NOW).chartOk, false);
+  const noAfter = tide().chart.slice(0, -1);                                                    // nothing after the day
+  assert.equal(tideView(tide({ chart: noAfter }), NOW).chartOk, false);
+  assert.equal(tideView(tide({ chart: tide().chart.slice(0, 2) }), NOW).chartOk, false);
+});
+
+test("an older API without chart points still shows the strip, and no day chart", () => {
+  const saved = globalThis.document;
+  globalThis.document = fakeDoc();
+  try {
+    const host = globalThis.document.createElement("section");
+    createTideCard(host).update(tide({ chart: undefined, after_next: undefined }), null, "2026-11-16T12:30:00+08:00");
+    assert.equal(find(host, "svg").length, 1);                          // the strip only
+    assert.equal(find(find(host, "details")[0], "svg").length, 0);      // no day chart inside Details
+    const t = textOf(host);
+    assert.match(t, /Rising tide/);
+    assert.match(t, /Next high 2.7 m · 14:20/);
+    assert.match(t, /chart isn't available/);
+  } finally { globalThis.document = saved; }
+});
+
+test("the visible part is compact: a headline, a pair of values and a small strip, with the rest in Details", () => {
+  const saved = globalThis.document;
+  globalThis.document = fakeDoc();
+  try {
+    const host = globalThis.document.createElement("section");
+    createTideCard(host).update(tide(), null, "2026-11-16T12:30:00+08:00");
+    const body = host.children[1];
+    const visible = body.children.filter((c) => c.tag !== "details");
+    assert.deepEqual(visible.map((c) => c.tag), ["p", "svg", "div"]);      // headline, the graph, then the pair of values
+    assert.equal(textOf(visible[0]), "Rising tide");
+    assert.equal(visible[0].className, "headline");                           // the same style as the lightning card's headline
+    assert.equal(visible[2].children.length, 2);                              // last tide and next tide, two compact values
+    assert.equal(textOf(visible[2].children[0]).replace(/\s+/g, " ").trim(), "Last low 1.7 m · 08:50");
+    assert.equal(textOf(visible[2].children[1]).replace(/\s+/g, " ").trim(), "Next high 2.7 m · 14:20");
+    assert.equal(visible[1].attrs.class, "td-strip");
+    const labels = find(visible[1], "text").map((t) => textOf(t));
+    assert.deepEqual(labels, ["08:50", "14:20", "Now"]);                     // the dots and the marker are labelled on the graph
+    assert.equal(visible[1].attrs.preserveAspectRatio, undefined);              // it scales evenly, so the dots stay round
+  } finally { globalThis.document = saved; }
+});
+
+test("the strip runs from the last tide through the next to the one after", () => {
+  const v = tideView(tide(), NOW);
+  const g = stripGeometry(v);
+  assert.equal(g.pts.length, 3);
+  assert.equal(g.curve[0][0], g.box.x0);
+  assert.ok(Math.abs(g.curve[g.curve.length - 1][0] - g.box.x1) < 1e-9);
+  for (let i = 1; i < g.curve.length; i++) assert.ok(g.curve[i][0] > g.curve[i - 1][0]);
+  for (const [x, y] of g.curve) { assert.ok(x >= g.box.x0 && x <= g.box.x1); assert.ok(y >= g.box.ytop - 1e-9 && y <= g.box.ybase + 1e-9); }
+  assert.equal(g.ends.length, 2);
+  assert.ok(g.ends[0].x < g.now.x && g.now.x < g.ends[1].x);                  // now sits between the last and next tide
+  assert.equal(g.ends[0].kind, "low");
+  assert.ok(g.ends[0].y > g.ends[1].y);                                       // the low is lower on the strip than the high
+  assert.equal(g.text, "Now");
+  assert.equal(stripGeometry(v, undefined, true).text, "Now about 2.5 m (estimate)");   // what the switch brings back
+});
+
+test("the dots are labelled on the graph: a high above, a low below, and Now over the dashed line", () => {
+  const g = stripGeometry(tideView(tide(), NOW));
+  assert.deepEqual(g.ends.map((e) => [e.kind, e.time]), [["low", "08:50"], ["high", "14:20"]]);
+  assert.equal(g.ends[0].label.y, g.box.bottomRow);                           // a low's time sits below the graph
+  assert.equal(g.ends[1].label.y, g.box.topRow);                              // a high's time sits above it
+  assert.equal(g.label.y, g.box.topRow);
+  assert.equal(g.label.anchor, "middle");
+  for (const l of [...g.ends.map((e) => e.label), g.label]) { assert.ok(l.x >= 0 && l.x <= 400); assert.ok(l.y >= 0 && l.y <= g.box.h); }
+});
+
+test("Now moves to the bottom row when it would sit on a high's time, and stays on top otherwise", () => {
+  const nearHigh = stripGeometry(tideView(tide(), Date.parse("2026-11-16T14:10:00+08:00")));
+  assert.equal(nearHigh.label.y, nearHigh.box.bottomRow);
+  const nearLow = stripGeometry(tideView(tide(), Date.parse("2026-11-16T08:55:00+08:00")));
+  assert.equal(nearLow.label.y, nearLow.box.topRow);
+  const mid = stripGeometry(tideView(tide(), NOW));
+  assert.equal(mid.label.y, mid.box.topRow);
+});
+
+test("labels near the edges of the strip are anchored so they stay inside", () => {
+  const g = stripGeometry(tideView(tide(), Date.parse("2026-11-16T08:55:00+08:00")));
+  assert.equal(g.ends[0].label.anchor, "start");                              // the last tide is at the left edge
+  const noAfter = stripGeometry(tideView(tide({ after_next: undefined }), NOW));
+  assert.equal(noAfter.ends[1].label.anchor, "end");                          // the next tide is at the right edge
+  for (const e of [...g.ends, ...noAfter.ends]) {
+    const w = 30, l = e.label.anchor === "start" ? e.label.x : e.label.anchor === "end" ? e.label.x - w : e.label.x - w / 2;
+    assert.ok(l >= 0 && l + w <= 400, JSON.stringify(e.label));
+  }
+});
+
+test("without the tide after the next, the strip ends at the next tide", () => {
+  const v = tideView(tide({ after_next: undefined }), NOW);
+  assert.equal(v.afterPoint, null);
+  const g = stripGeometry(v);
+  assert.equal(g.pts.length, 2);
+  assert.ok(Math.abs(g.ends[1].x - g.box.x1) < 1e-9);
+});
+
+test("a tide after the next that does not alternate or is out of order is ignored, not trusted", () => {
+  assert.equal(tideView(tide({ after_next: E("high", "2026-11-16T21:37:00+08:00", 2.0) }), NOW).afterPoint, null);   // same kind as next
+  assert.equal(tideView(tide({ after_next: E("low", "2026-11-16T10:00:00+08:00", 0.9) }), NOW).afterPoint, null);    // before the next tide
+  assert.equal(tideView(tide({ after_next: "x" }), NOW).afterPoint, null);
+  assert.equal(tideView(tide({ after_next: null }), NOW).afterPoint, null);
+});
+
+test("the now label stays inside the strip near either end of the window, even when it is long", () => {
+  const early = stripGeometry(tideView(tide(), Date.parse("2026-11-16T08:55:00+08:00")), undefined, true);
+  assert.equal(early.label.anchor, "start");
+  const late = stripGeometry(tideView(tide({ after_next: undefined }), Date.parse("2026-11-16T14:10:00+08:00")), undefined, true);
+  assert.equal(late.label.anchor, "end");
+  for (const g of [early, late]) {
+    const width = g.text.length * 6.4;
+    const left = g.label.anchor === "start" ? g.label.x : g.label.x - width;
+    assert.ok(left >= 0 && left + width <= 400, `${left} ${left + width}`);
+  }
+});
+
+test("the strip scale fits a small tide as well as a big one", () => {
+  const small = stripGeometry(tideView(tide({ previous: E("low", "2026-11-16T08:50:00+08:00", 1.7), next: E("high", "2026-11-16T14:20:00+08:00", 1.9), after_next: undefined, leg_height_m: 0.2 }), NOW));
+  for (const [, y] of small.curve) assert.ok(y >= small.box.ytop - 1e-9 && y <= small.box.ybase + 1e-9);
+  assert.ok(small.ends[0].y > small.ends[1].y);
 });
 
 test("the now marker sits on the curve", () => {
@@ -140,9 +273,10 @@ test("the card shows the tide, and hides itself for an older API", () => {
     assert.equal(host.hidden, false);
     const t = textOf(host);
     assert.match(t, /Rising tide/);
-    assert.match(t, /Next high 14:20, 2.7 m/);
-    assert.match(t, /Last low 08:50, 1.7 m/);
-    assert.match(t, /Height now: about 2.5 m \(estimate\)/);
+    assert.match(t, /Next high 2.7 m · 14:20/);
+    assert.match(t, /Last low 1.7 m · 08:50/);
+    assert.match(t, /Predicted \(NEA\), not measured/);
+    assert.doesNotMatch(t, /about 2\.5|estimate/);                              // no height is shown for right now
     assert.match(t, /tide height only/);
     assert.match(t, /Current direction and strength aren't shown/);
     assert.match(t, /Source: NEA, from MPA predictions/);
@@ -177,11 +311,12 @@ test("the explanations are tucked into a closed Details, and the key facts stay 
     assert.match(inside, /Chart Datum, not water depth/);
     const outside = textOf(host).replace(inside, "");
     assert.match(outside, /Rising tide/);
-    assert.match(outside, /Next high 14:20, 2.7 m/);
-    assert.match(outside, /Height now: about 2.5 m \(estimate\)/);
-    assert.match(outside, /Predicted, not measured/);
+    assert.match(outside, /Next high 2.7 m · 14:20/);
+    assert.doesNotMatch(outside, /about 2\.5|estimate/);
+    assert.match(outside, /Predicted \(NEA\), not measured/);
     assert.doesNotMatch(outside, /Chart Datum|Source:|Shaded/);
-    assert.equal(find(host, "svg").length, 1);
+    assert.equal(find(host, "svg").length, 2);                           // the small strip, and the full chart inside Details
+    assert.equal(find(details[0], "svg").length, 1);
   } finally { globalThis.document = saved; }
 });
 
@@ -253,4 +388,26 @@ test("a page that cannot build the card never throws", () => {
     }
     assert.doesNotThrow(() => createTideCard(null).update(tide()));
   } finally { globalThis.document = saved; }
+});
+
+test("no height for right now is shown anywhere unless the switch is turned on", () => {
+  assert.equal(SHOW_HEIGHT_NOW, false);
+  const saved = globalThis.document;
+  globalThis.document = fakeDoc();
+  try {
+    const host = globalThis.document.createElement("section");
+    createTideCard(host).update(tide(), null, "2026-11-16T12:30:00+08:00");
+    const strip = find(host, "svg").find((n) => n.attrs.class === "td-strip");
+    assert.doesNotMatch(strip.attrs["aria-label"], /\d\.\d metres/);
+    for (const t of find(strip, "text")) assert.match(textOf(t), /^(Now|\d\d:\d\d)$/);     // times and "Now" only, never a height
+    assert.doesNotMatch(textOf(strip), /\d\.\d|about|estimate/);
+    assert.equal(textOf(find(strip, "text").pop()), "Now");
+  } finally { globalThis.document = saved; }
+});
+
+test("the card still works when the API sends no height estimate, and refuses a garbage one", () => {
+  assert.ok(tideView(tide({ height_estimate_m: undefined }), NOW));
+  assert.ok(tideView(tide({ height_estimate_m: null }), NOW));
+  assert.equal(tideView(tide({ height_estimate_m: "2.5" }), NOW), null);
+  assert.equal(tideView(tide({ height_estimate_m: NaN }), NOW), null);
 });
