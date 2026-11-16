@@ -60,11 +60,11 @@ curl -s "$API/api/catalog/spots?activity=windsurf"             # {"spots":[]} un
 
 ## 3. The "go public" switch
 
-East Coast is hidden until this migration runs. **The development and production servers share one database**, so running it here takes effect for the live API too. Run it when you are ready:
+East Coast is hidden until this migration runs. **Until you set up a separate dev database (docs/WORKFLOW.md), the development and production servers share one database**, so running it here takes effect for the live API too. Run it when you are ready:
 
 ```bash
-cd ~/my_code/watersports-kaki/backend
-alembic upgrade head          # applies d9a4e6f1b283
+cd ~/my_code/watersports-kaki
+bash scripts/migrate.sh --live upgrade head   # applies d9a4e6f1b283, and asks you to type LIVE
 ```
 
 Then check, and confirm the guidance is hidden:
@@ -77,7 +77,7 @@ curl -s "$API/api/spots/east-coast-parkway-carpark-e5/conditions?activity=windsu
 
 The last line must print `not_published`. **If it prints anything else, the private-spots flag is on. Fix that before going further.**
 
-To hide the spot again: `alembic downgrade -1`.
+To hide the spot again: `bash scripts/migrate.sh --live downgrade -1`.
 
 ## 4. DNS for the API
 
@@ -93,7 +93,7 @@ No second Vercel project and no extra DNS record. The app's files are copied int
 
 ```bash
 cd ~/my_code/watersports-kaki
-bash scripts/sync_app.sh                  # copies 8 files into ~/my_code/wsk-landing/app/
+bash scripts/sync_app.sh --publish        # copies 10 files into ~/my_code/wsk-landing/app/ (--publish because main goes live)
 cd ~/my_code/wsk-landing
 git status --short                        # the new app/ folder and the updated index.html
 git add app index.html
@@ -140,7 +140,8 @@ By default the public sees the facts only. Two separate switches change that. Bo
    ```bash
    cd ~/my_code/watersports-kaki/backend
    alembic heads                 # expect f2c8d51e7b94
-   alembic upgrade head
+   cd ..
+   bash scripts/migrate.sh --live upgrade head
    ```
    On its own this changes nothing publicly, because the live site loads only reviewed sectors unless the second switch is on.
 3. **Turn on provisional guidance.** In Render, open `wsk-api`, then **Environment**, add `WSK_PROVISIONAL_GUIDANCE` with the value `1`, and choose **Save and deploy**.
@@ -151,7 +152,7 @@ By default the public sees the facts only. Two separate switches change that. Bo
    ```
    The first word must **not** be `not_published`, and the last must be `unreviewed`. The page then says "provisional" wherever it shows a range.
 
-**To turn it off:** delete `WSK_PROVISIONAL_GUIDANCE` in Render and deploy. The page goes back to facts only. To remove the sectors as well: `alembic downgrade -1`.
+**To turn it off:** delete `WSK_PROVISIONAL_GUIDANCE` in Render and deploy. The page goes back to facts only. To remove the sectors as well: `bash scripts/migrate.sh --live downgrade -1`.
 
 **Never set `WSK_SHOW_PRIVATE_SPOTS` on Render.** It is a different switch: it also reveals private spots.
 

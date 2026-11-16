@@ -5,9 +5,11 @@ import {
   FAIL_CLOSED_NOTE, upcomingDays, planSummary, formHint,
 } from "./lib.js";
 import { createWindDiagram } from "./wind-diagram.js";
+import { createTideCard } from "./tide-card.js";
 
 const $ = (id) => document.getElementById(id);
 const windDiagram = createWindDiagram($("wind-diagram-panel"));
+const tideCard = createTideCard($("tide-panel"));
 
 // All API text goes in through textContent, never innerHTML.
 function el(tag, cls, text) {
@@ -65,6 +67,7 @@ function clearNow() {
   for (const id of ["wind-panel", "lightning-panel"]) $(id).replaceChildren();
   $("lightning-panel").className = "card";
   windDiagram.clear();
+  tideCard.clear();
 }
 
 function showBanner(message, kind, withNote = false) {
@@ -410,6 +413,8 @@ async function loadConditions() {
     renderNow(buildView(payload), { activityName: state.activity.name, spotName: state.spot.name });
     windDiagram.update(payload.observations && payload.observations.wind, payload.spot && payload.spot.launch_point,
       payload.guidance && payload.guidance.direction);
+    const obs = payload.observations || {};
+    tideCard.update("tide" in obs ? obs.tide : undefined, obs.tide_message, payload.generated_at);
     lastLoad = Date.now();
   } catch (e) {
     if (inflight !== ctrl) return;  // replaced by a newer request

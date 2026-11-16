@@ -6,7 +6,7 @@ then shows "Tide data unavailable". The block gives facts with their source and 
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 from services.tide_table import SGT, coverage_end, tide_now
@@ -29,6 +29,10 @@ def build_tide_block(table: Optional[dict], info: Optional[dict] = None, now: Op
     if state is None:
         return None
     today = [e for e in table["extremes"] if e.at.astimezone(SGT).date() == now.date()]
+    # A day's chart needs the tide before midnight and the one after it, so the curve reaches both edges.
+    day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    chart = [e for e in table["extremes"]
+             if day_start - timedelta(hours=9) <= e.at.astimezone(SGT) <= day_start + timedelta(hours=33)]
     fetched = table.get("fetched_at")
     return {
         "source": SOURCE,
@@ -44,6 +48,7 @@ def build_tide_block(table: Optional[dict], info: Optional[dict] = None, now: Op
         "leg_midpoint": state["leg_midpoint"].astimezone(SGT).isoformat(),
         "minutes_to_next": state["minutes_to_next"],
         "today": [_ext(e) for e in today],
+        "chart": [_ext(e) for e in chart],
         "fetched_at": fetched.astimezone(SGT).isoformat() if isinstance(fetched, datetime) else None,
         "coverage_end": coverage_end(table["extremes"]).astimezone(SGT).isoformat(),
         "served_stale": bool((info or {}).get("served_stale")),

@@ -33,6 +33,20 @@ class TideBlock(unittest.TestCase):
         self.assertEqual([(t["kind"], t["height_m"]) for t in b["today"]],
                          [("high", 2.4), ("low", 1.7), ("high", 2.7), ("low", 0.9)])
 
+    def test_chart_points_reach_past_both_edges_of_the_day(self):
+        b = build_tide_block(table(), OK, NOW)
+        times = [c["at"] for c in b["chart"]]
+        self.assertEqual(times, sorted(times))
+        self.assertTrue(times[0].startswith("2026-11-15T20:45"))      # the last tide of the day before
+        self.assertTrue(times[-1].startswith("2026-11-17T04:50"))     # the first tide of the day after
+        self.assertEqual(len(b["chart"]), 6)
+        for t in b["today"]:
+            self.assertIn(t, b["chart"])
+
+    def test_chart_points_keep_the_gap_to_the_edge_under_the_limit(self):
+        b = build_tide_block(table(), OK, datetime(2026, 11, 3, 12, 0, tzinfo=SGT))   # a three-tide day
+        self.assertGreaterEqual(len(b["chart"]), 5)
+
     def test_the_caveats_travel_with_the_numbers(self):
         b = build_tide_block(table(), OK, NOW)
         self.assertEqual(b["source"], SOURCE)
