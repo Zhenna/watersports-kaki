@@ -134,7 +134,6 @@ test("idKind accepts a GA4 ID or a container, and refuses the placeholder and an
 });
 
 test("with no valid ID, nothing loads and no notice is shown", () => {
-  assert.equal(ANALYTICS_ID, "", "the shipped file is empty until you paste your ID");
   for (const id of ["", "G-XXXXXXXXXX", "GTM-", "G-ABC DEF", "G-<script>", "UA-1234-1"]) {
     const e = env({ id });
     assert.equal(e.a.init(), "off", id);
@@ -146,12 +145,23 @@ test("with no valid ID, nothing loads and no notice is shown", () => {
   }
 });
 
-test("the file as shipped, with no ID set, does nothing", () => {
+test("the ID in the file is either empty or a valid Measurement ID, so a typo cannot ship", () => {
+  assert.equal(typeof ANALYTICS_ID, "string");
+  assert.ok(ANALYTICS_ID === "" || idKind(ANALYTICS_ID) !== null, `ANALYTICS_ID is not a valid ID: ${JSON.stringify(ANALYTICS_ID)}`);
+  assert.ok(ANALYTICS_ID === "" || /^G-[A-Z0-9]{6,12}$/.test(ANALYTICS_ID), "set the G- Measurement ID, not a Tag Manager container");
+});
+
+test("with no id given, the file's own ID decides: empty does nothing, a valid one asks first", () => {
   const e = env();
-  const bare = createAnalytics({ win: e.win, doc: e.doc, storage: null });          // no id given: uses ANALYTICS_ID
-  assert.equal(bare.init(), "off");
-  assert.equal(scripts(e).length, 0);
-  assert.equal(bar(e), undefined);
+  const bare = createAnalytics({ win: e.win, doc: e.doc, storage: null });         // no id given: uses ANALYTICS_ID
+  if (idKind(ANALYTICS_ID) === null) {
+    assert.equal(bare.init(), "off");
+    assert.equal(bar(e), undefined);
+  } else {
+    assert.equal(bare.init(), "asking");                                            // a notice, and still nothing from Google
+    assert.equal(e.win.dataLayer, undefined);
+    assert.equal(scripts(e).filter((n) => n.src).length, 0);
+  }
 });
 
 test("Decline loads nothing and clears Google cookies", () => {
