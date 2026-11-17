@@ -238,6 +238,16 @@ test("Global Privacy Control means nothing loads and no notice is shown", () => 
   assert.equal(env({ gpc: false }).a.init(), "asking");
 });
 
+test("the interest card events carry only the sport, spot and level", () => {
+  assert.deepEqual(cleanParams("interest_card_viewed", { sport: "windsurf", location: "east-coast-parkway-carpark-e5", skill_level: "never_tried", email: "a@b.sg" }),
+    { sport: "windsurf", location: "east-coast-parkway-carpark-e5", skill_level: "never_tried" });
+  assert.deepEqual(cleanParams("interest_card_clicked", { sport: undefined, location: null, skill_level: "never_tried" }), { skill_level: "never_tried" });
+  assert.deepEqual(cleanParams("interest_card_clicked", { sport: "windsurf", skill_level: "never_tried", when: "weekend" }), { sport: "windsurf", skill_level: "never_tried", when: "weekend" });
+  assert.deepEqual(cleanParams("interest_card_clicked", { when: "none" }), { when: "none" });
+  assert.deepEqual(cleanParams("interest_card_clicked", { when: "a@b.sg" }), {});               // an address is never sent
+  assert.deepEqual(cleanParams("interest_card_viewed", { when: "weekend" }), {});              // only the click carries the choice
+});
+
 test("events are refused until the visitor accepts", () => {
   const e = env();
   e.a.init();

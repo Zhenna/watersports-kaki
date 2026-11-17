@@ -29,6 +29,8 @@ export const EVENTS = {
   whatsapp_join_clicked: ["source_page", "placement"],
   conditions_cta_clicked: ["source_page", "placement"],
   early_access_form_clicked: ["source_page", "placement"],
+  interest_card_viewed: ["sport", "location", "skill_level"],
+  interest_card_clicked: ["sport", "location", "skill_level", "when"],
 };
 
 // "ga4" for a G- Measurement ID, "gtm" for a Tag Manager container, null for anything else (including the placeholder).

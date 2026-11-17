@@ -6,6 +6,8 @@ import {
 } from "./lib.js";
 import { createWindDiagram } from "./wind-diagram.js";
 import { createTideCard } from "./tide-card.js";
+import { NEVER_TRIED, STARTER_LEVEL, WHEN_OPTIONS, panesFor, entryCard, learnerForm, interestLink, countView } from "./entry-requirements.js";
+import { renderEntryCard } from "./entry-card.js";
 
 const $ = (id) => document.getElementById(id);
 const windDiagram = createWindDiagram($("wind-diagram-panel"));
@@ -27,6 +29,8 @@ const state = {
 };
 let lastLoad = 0;
 let inflight = null;
+let entryKey = null;   // which selection the "never tried" card was last shown for
+let whenChoice = null; // weekend, weekday or flexible, for the card in view
 
 // ---------- small helpers ----------
 async function getJson(url, timeoutMs = 25000) {
@@ -373,7 +377,7 @@ function forecastKey() {
 }
 
 async function loadForecast() {
-  if (!state.activity || !state.spot) return;
+  if (!state.activity || !state.spot || state.level === NEVER_TRIED) return;
   const key = forecastKey();
   state.forecast = { key, status: "loading", payload: null };
   renderPlan();
@@ -389,9 +393,82 @@ function ensureForecast() {
   if (state.forecast.key !== forecastKey()) loadForecast();
 }
 
+// ---------- never tried ----------
+// A first-timer sees a card, not conditions: a wind range could read as "go". See entry-requirements.js.
+function track(name, extra) {
+  try {
+    if (typeof window !== "undefined" && typeof window.wskTrack === "function") {
+      window.wskTrack(name, { sport: state.activity && state.activity.slug, location: state.spot && state.spot.slug, skill_level: state.level, ...extra });
+    }
+  } catch (e) { /* counting a click must never break the page */ }
+}
+
+function renderEntry() {
+  const host = $("entry-panel");
+  if (!host) return;
+  host.replaceChildren();
+  const card = entryCard({ sportSlug: state.activity && state.activity.slug, sportName: state.activity && state.activity.name, level: state.level });
+  if (!card) return;
+  const key = `${state.activity && state.activity.slug}|${state.spot && state.spot.slug}|${state.level}`;
+  const fresh = entryKey !== key;
+  if (fresh) whenChoice = null;   // a new selection starts with no answer
+  const form = learnerForm(CONFIG.LEARNER_FORM);
+
+  renderEntryCard(host, {
+    card,
+    count: countView(CONFIG.INTEREST_COUNTS, state.activity && state.activity.slug, Date.now()),
+    options: form ? WHEN_OPTIONS : [],   // shown only when the choice can reach the form
+    selected: whenChoice,
+    place: state.spot && state.spot.name,
+  }, {
+    href: () => interestLink(form, CONFIG.INTEREST_URL, whenChoice, {
+      sport: state.activity && state.activity.name, place: state.spot && state.spot.name,
+    }),
+    onPick: (slug) => { whenChoice = slug; },
+    onRegister: () => track("interest_card_clicked", { when: whenChoice || "none" }),
+    onSwitch: () => {
+      state.level = STARTER_LEVEL;
+      $("level").value = STARTER_LEVEL;
+      refreshAll();
+    },
+  });
+  if (fresh) {   // count a view once per selection, not on every redraw
+    entryKey = key;
+    track("interest_card_viewed");
+  }
+}
+
+// The hidden attribute loses to a stylesheet rule such as display:flex, which kept the tabs on screen. So hide with both.
+function setShown(id, shown) {
+  const e = $(id);
+  if (!e) return;
+  e.hidden = !shown;
+  e.setAttribute("style", shown ? "" : "display:none");
+}
+
+function applyLevelMode() {
+  const panes = panesFor(state.level);
+  const entry = $("entry-panel");
+  if (panes.entry) {
+    if (inflight) { inflight.abort(); inflight = null; }   // a late reply must not draw conditions for a first-timer
+    for (const id of ["context", "tabs", "pane-now", "pane-plan"]) setShown(id, false);
+    hideBanner();
+    clearNow();
+    setShown("entry-panel", true);
+    renderEntry();
+  } else {
+    entryKey = null;
+    setShown("entry-panel", false);
+    if (entry) entry.replaceChildren();
+    for (const id of ["context", "tabs"]) setShown(id, true);
+    setShown("pane-now", state.tab === "now");
+    setShown("pane-plan", state.tab === "plan");
+  }
+}
+
 // ---------- loading ----------
 async function loadConditions() {
-  if (!state.activity || !state.spot) return;
+  if (!state.activity || !state.spot || state.level === NEVER_TRIED) return;   // first-timers get the card, not conditions
   if (inflight) inflight.abort();
   const ctrl = new AbortController();
   inflight = ctrl;
@@ -444,6 +521,7 @@ async function loadSpots(wantedSpot) {
 }
 
 function refreshAll() {
+  applyLevelMode();
   updateUrl();
   state.forecast = { key: null, status: "idle", payload: null };
   if (state.tab === "plan") ensureForecast();
@@ -474,6 +552,7 @@ async function init() {
   if (!(await loadSpots(wanted.spot))) return;
   setTab(wanted.tab);
   renderPlan();
+  applyLevelMode();
   await loadConditions();
 }
 
