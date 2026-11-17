@@ -27,7 +27,7 @@ if [ "$BRANCH" = "main" ] && [ "$PUBLISH" -ne 1 ]; then
 fi
 
 mkdir -p "$DEST"
-for f in index.html app.js lib.js wind-diagram.js tide-card.js config.js styles.css logo-emblem.png favicon.png apple-touch-icon.png; do
+for f in index.html app.js lib.js wind-diagram.js tide-card.js analytics.js config.js styles.css logo-emblem.png favicon.png apple-touch-icon.png; do
   cp "$SRC/$f" "$DEST/$f"
 done
 
