@@ -13,7 +13,7 @@
 // Paste your GA4 Measurement ID here: Analytics, Admin, Data streams, your web stream, top right (G-...).
 // It is public (it appears in the page source), so it is fine to commit. While this is empty, or still the
 // placeholder, nothing loads and no notice is shown.
-export const ANALYTICS_ID = "";
+export const ANALYTICS_ID = "G-ZYYFMB2K0B";
 export const PRIVACY_URL = "/privacy.html";
 const HOST = /(^|\.)watersportskaki\.sg$/i;
 const KEY = "wsk_consent_analytics";
