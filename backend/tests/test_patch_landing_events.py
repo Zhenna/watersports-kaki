@@ -86,6 +86,58 @@ class Patch(unittest.TestCase):
             self.assertEqual(pe.event_for(href, "") == "conditions_cta_clicked", expect, href)
 
 
+PAIN = """<a href="https://forms.gle/early1">\u26c5 I don't know when conditions are suitable for me</a>
+<a href="https://forms.gle/early1">\U0001F465 I can't find people to go with</a>
+<a href="https://forms.gle/early1">\U0001F9ED I want to try a new watersport but don't know where to start</a>
+<a href="https://forms.gle/early1">\U0001F4C8 I want to learn and find other beginners</a>
+<a href="https://forms.gle/early1">\U0001F4C5 Getting everyone to the same place at the same time is hard</a>
+<a href="https://forms.gle/early1">\U0001F30A I want to track my progress and time on the water</a>
+<a href="https://forms.gle/early1">\U0001F4AC Something else</a>
+<a href="https://forms.gle/early1">Join early access \u2192</a>
+<a href="https://forms.gle/early1">Tell us what you\u2019d like next.</a>
+<a href="https://forms.gle/early1">An unrecognised button</a>
+<a href="https://forms.gle/partner1">Join the partner network \u2192</a>
+"""
+
+
+class Choices(unittest.TestCase):
+    def test_each_early_access_button_gets_its_own_label(self):
+        out, tagged, _ = pe.patch(PAIN, "https://forms.gle/early1", partner_url="https://forms.gle/partner1")
+        labels = [l.split('data-wsk-choice="')[1].split('"')[0] for l in out.splitlines() if "data-wsk-choice" in l]
+        self.assertEqual(labels, ["unsure_when_to_go", "no_people_to_go_with", "unsure_where_to_start", "learn_with_beginners",
+                                  "coordinating_groups", "track_progress", "something_else", "join_button", "next_sport"])
+        self.assertEqual(len(set(labels)), len(labels))
+        self.assertTrue(all(v.islower() and v.replace("_", "").isalpha() for v in labels))
+
+    def test_an_unrecognised_button_is_tagged_without_a_label(self):
+        out, _, _ = pe.patch(PAIN, "https://forms.gle/early1")
+        line = [l for l in out.splitlines() if "unrecognised" in l][0]
+        self.assertIn('data-wsk-event="early_access_form_clicked"', line)
+        self.assertNotIn("data-wsk-choice", line)
+
+    def test_only_early_access_links_get_a_label(self):
+        out, _, _ = pe.patch(PAIN, "https://forms.gle/early1", partner_url="https://forms.gle/partner1")
+        partner = [l for l in out.splitlines() if "partner network" in l][0]
+        self.assertIn('data-wsk-event="partner_form_clicked"', partner)
+        self.assertNotIn("data-wsk-choice", partner)
+
+    def test_the_partner_form_is_tagged_only_when_named(self):
+        _, tagged, forms = pe.patch(PAIN, "https://forms.gle/early1")
+        self.assertNotIn("partner_form_clicked", [t[0] for t in tagged])
+        self.assertIn(("https://forms.gle/partner1", "Join the partner network \u2192"), forms)
+
+    def test_running_it_twice_changes_nothing_even_with_labels(self):
+        once, _, _ = pe.patch(PAIN, "https://forms.gle/early1", partner_url="https://forms.gle/partner1")
+        twice, tagged, _ = pe.patch(once, "https://forms.gle/early1", partner_url="https://forms.gle/partner1")
+        self.assertEqual(once, twice)
+        self.assertEqual(tagged, [])
+
+    def test_a_curly_apostrophe_is_understood(self):
+        self.assertEqual(pe.choice_for("Tell us what you\u2019d like next."), "next_sport")
+        self.assertEqual(pe.choice_for("\U0001F465 I can\u2019t find people to go with"), "no_people_to_go_with")
+        self.assertIsNone(pe.choice_for(""))
+
+
 class LeavesCodeAlone(unittest.TestCase):
     def test_links_inside_scripts_styles_and_comments_are_never_changed(self):
         page = ("<script>var a = \"<a href='https://chat.whatsapp.com/S1'>x</a>\"; var b = '<a href=\"/app/\">y</a>';</script>"

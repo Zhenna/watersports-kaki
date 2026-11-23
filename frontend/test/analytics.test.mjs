@@ -370,6 +370,24 @@ test("the landing link events carry only the page and the place", () => {
   }
 });
 
+test("the early-access choice is sent when a button carries one, and the partner form has its own event", () => {
+  assert.deepEqual(cleanParams("early_access_form_clicked", { source_page: "home", placement: "page", choice: "no_people_to_go_with" }), { source_page: "home", placement: "page", choice: "no_people_to_go_with" });
+  assert.deepEqual(cleanParams("early_access_form_clicked", { source_page: "home", choice: "I can't find people" }), { source_page: "home" });   // not a plain word, so dropped
+  assert.deepEqual(cleanParams("partner_form_clicked", { source_page: "operators", placement: "page", choice: "x" }), { source_page: "operators", placement: "page" });
+  assert.deepEqual(cleanParams("whatsapp_join_clicked", { source_page: "home", choice: "x" }), { source_page: "home" });                         // only events that allow a choice carry it
+});
+
+test("a tagged button sends its choice with the click", () => {
+  const e = env();
+  e.a.init();
+  click(e, "Accept");
+  const attrs = { "data-wsk-event": "early_access_form_clicked", "data-wsk-choice": "track_progress" };
+  const tagged = { getAttribute: (k) => attrs[k] ?? null, closest: (sel) => (sel === "[data-wsk-event]" ? tagged : null) };
+  e.win.location.pathname = "/";
+  e.doc.listeners.click.forEach((fn) => fn({ target: tagged }));
+  assert.deepEqual([...e.win.dataLayer[e.win.dataLayer.length - 1]], ["event", "early_access_form_clicked", { source_page: "home", placement: "page", choice: "track_progress" }]);
+});
+
 test("a tagged link is counted when pressed, after Accept, with its page and place", () => {
   const e = env();
   e.a.init();

@@ -28,7 +28,8 @@ export const EVENTS = {
   conditions_details_opened: ["detail_type", "sport", "location"],
   whatsapp_join_clicked: ["source_page", "placement"],
   conditions_cta_clicked: ["source_page", "placement"],
-  early_access_form_clicked: ["source_page", "placement"],
+  early_access_form_clicked: ["source_page", "placement", "choice"],
+  partner_form_clicked: ["source_page", "placement"],
   interest_card_viewed: ["sport", "location", "skill_level"],
   interest_card_clicked: ["sport", "location", "skill_level", "when"],
   refresh_clicked: ["sport", "location"],
@@ -229,7 +230,11 @@ export function createAnalytics(env) {
       // A link marked data-wsk-event="whatsapp_join_clicked" is counted when it is pressed (only after Accept).
       const tagged = target.closest("[data-wsk-event]");
       if (tagged) {
-        track(tagged.getAttribute("data-wsk-event"), { source_page: sourcePage(loc.pathname), placement: placementFor(tagged) });
+        track(tagged.getAttribute("data-wsk-event"), {
+          source_page: sourcePage(loc.pathname),
+          placement: placementFor(tagged),
+          choice: tagged.getAttribute("data-wsk-choice"),   // optional: which option a button stands for
+        });
       }
     });
     const choice = readConsent(storage, now()) || memory;

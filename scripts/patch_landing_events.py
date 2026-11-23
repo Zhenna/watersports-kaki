@@ -4,7 +4,7 @@ Tags the landing pages' links so that pressing them is counted (after a visitor 
 
     python3 scripts/patch_landing_events.py ~/my_code/wsk-landing --dry-run
     python3 scripts/patch_landing_events.py ~/my_code/wsk-landing \\
-        --early-access-url https://forms.gle/xxxx --feedback-url https://forms.gle/yyyy
+        --early-access-url https://forms.gle/xxxx --feedback-url https://forms.gle/yyyy --partner-url https://forms.gle/zzzz
 
 It adds data-wsk-event="..." to links, and nothing else:
   - links to chat.whatsapp.com          -> whatsapp_join_clicked
@@ -13,6 +13,9 @@ It adds data-wsk-event="..." to links, and nothing else:
   - links to instagram.com              -> instagram_link_clicked
   - the link you name with --early-access-url  -> early_access_form_clicked
   - the link you name with --feedback-url      -> feedback_link_clicked
+  - the link you name with --partner-url       -> partner_form_clicked
+The early-access buttons also get a data-wsk-choice label saying which button it is (see CHOICES), so you can tell the
+pain-point buttons apart. Labels are set once, when the link is tagged, so later copy edits don't change them.
 Other Google Form links are left alone and listed, because forms look the same from the address, and a wrong label
 would give you wrong numbers. Copy each form's address from the dry run, next to the link text you recognise.
 It skips links that already have the attribute, so running it twice changes nothing.
@@ -28,7 +31,30 @@ TAG = re.compile(r"<[^>]+>")
 SKIP = re.compile(r"(<script\b.*?</script>|<style\b.*?</style>|<!--.*?-->)", re.S | re.I)
 
 
-def event_for(href: str, early_access_url: str, feedback_url: str = ""):
+# Which early-access button a link is, from its text (emoji and punctuation case ignored). Edit the labels to taste.
+CHOICES = [
+    ("don't know when conditions", "unsure_when_to_go"),
+    ("can't find people", "no_people_to_go_with"),
+    ("try a new watersport", "unsure_where_to_start"),
+    ("learn and find other beginners", "learn_with_beginners"),
+    ("same place at the same time", "coordinating_groups"),
+    ("track my progress", "track_progress"),
+    ("something else", "something_else"),
+    ("join early access", "join_button"),
+    ("tell us what you'd like next", "next_sport"),
+]
+
+
+def choice_for(text: str):
+    t = re.sub(r"[^\x00-\x7f]", "", text.replace("\u2019", "'")).lower()
+    t = " ".join(t.split())
+    for fragment, label in CHOICES:
+        if fragment in t:
+            return label
+    return None
+
+
+def event_for(href: str, early_access_url: str, feedback_url: str = "", partner_url: str = ""):
     h = href.strip()
     if "chat.whatsapp.com" in h:
         return "whatsapp_join_clicked"
@@ -42,6 +68,8 @@ def event_for(href: str, early_access_url: str, feedback_url: str = ""):
         return "early_access_form_clicked"
     if feedback_url and h.rstrip("/") == feedback_url.rstrip("/"):
         return "feedback_link_clicked"
+    if partner_url and h.rstrip("/") == partner_url.rstrip("/"):
+        return "partner_form_clicked"
     return None
 
 
@@ -49,7 +77,7 @@ def is_form(href: str) -> bool:
     return "forms.gle/" in href or "docs.google.com/forms" in href
 
 
-def patch(html: str, early_access_url: str = "", feedback_url: str = ""):
+def patch(html: str, early_access_url: str = "", feedback_url: str = "", partner_url: str = ""):
     """(new_html, tagged, untagged_forms). tagged: [(event, href, text)]. untagged_forms: [(href, text)]."""
     tagged, forms = [], []
 
@@ -62,10 +90,15 @@ def patch(html: str, early_access_url: str = "", feedback_url: str = ""):
         text = " ".join(TAG.sub("", inner).split())[:60]
         if "data-wsk-event" in attrs:
             return m.group(0)
-        ev = event_for(href, early_access_url, feedback_url)
+        ev = event_for(href, early_access_url, feedback_url, partner_url)
         if ev:
+            extra = ""
+            if ev == "early_access_form_clicked":
+                label = choice_for(text)
+                if label:
+                    extra = f' data-wsk-choice="{label}"'
             tagged.append((ev, href, text))
-            return f'<a data-wsk-event="{ev}"{attrs}>{inner}</a>'
+            return f'<a data-wsk-event="{ev}"{extra}{attrs}>{inner}</a>'
         if is_form(href):
             forms.append((href, text))
         return m.group(0)
@@ -80,7 +113,7 @@ def patch(html: str, early_access_url: str = "", feedback_url: str = ""):
 
 def main(argv):
     dry = "--dry-run" in argv
-    early = feedback = ""
+    early = feedback = partner = ""
     args = []
     it = iter(argv)
     for a in it:
@@ -88,6 +121,8 @@ def main(argv):
             early = next(it, "")
         elif a == "--feedback-url":
             feedback = next(it, "")
+        elif a == "--partner-url":
+            partner = next(it, "")
         elif not a.startswith("--"):
             args.append(a)
     if len(args) != 1:
@@ -104,10 +139,11 @@ def main(argv):
             print(f"{name}: not found, skipped")
             continue
         before = path.read_text(encoding="utf-8")
-        after, tagged, forms = patch(before, early, feedback)
+        after, tagged, forms = patch(before, early, feedback, partner)
         print(f"{name}:")
         for ev, href, text in tagged:
-            print(f"  + {ev:26} {text!r} -> {href}")
+            label = choice_for(text) if ev == "early_access_form_clicked" else None
+            print(f"  + {ev:26} {text!r} -> {href}" + (f"   [choice: {label}]" if label else ""))
         for href, text in forms:
             print(f"  ? form link left alone: {text!r} -> {href}")
         if not tagged and not forms:
