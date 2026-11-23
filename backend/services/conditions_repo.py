@@ -15,9 +15,24 @@ from core.db import get_session
 from models import Spot, Activity, ActivityConditionRule, FeedFetchLog
 from services.conditions_rules import Rule, WindSector
 from services.launch_points import select_launch_point
+from services.ttl_cache import TtlCache
 
 
 from services.guidance_policy import preview_mode, provisional_guidance, select_sectors  # noqa: E402,F401
+
+
+def _cache_seconds() -> float:
+    """How long a spot's rules, sectors and the catalog lists are remembered. 0 turns it off. Default 2 minutes."""
+    try:
+        return max(0.0, float(os.getenv("WSK_CONTEXT_CACHE_SECONDS", "120")))
+    except ValueError:
+        return 120.0
+
+
+# These rarely change, and each lookup costs several database round trips, so they are remembered briefly.
+# An edit to a rule, sector or launch point shows up within the time above.
+_context_cache = TtlCache(_cache_seconds())
+_catalog_cache = TtlCache(_cache_seconds())
 
 
 class NotFound(Exception):
@@ -46,6 +61,13 @@ class SpotContext:
 
 def load_context(slug: str, activity_slug: str, level: str, include_private: bool = False,
                  include_unreviewed: bool = False) -> SpotContext:
+    """Remembered briefly. NotFound and NotSupported are never remembered, so they are checked again each time."""
+    key = ("context", slug, activity_slug, level, bool(include_private), bool(include_unreviewed))
+    return _context_cache.get(key, lambda: _load_context_uncached(slug, activity_slug, level, include_private, include_unreviewed))
+
+
+def _load_context_uncached(slug: str, activity_slug: str, level: str, include_private: bool = False,
+                           include_unreviewed: bool = False) -> SpotContext:
     """Load a spot, its activity, the level's rules and the wind sectors.
     include_private (preview mode) also allows non-public spots and unreviewed sectors.
     include_unreviewed (provisional guidance) allows unreviewed sectors, and nothing else."""
@@ -128,6 +150,11 @@ def log_fetches(entries: list) -> None:
 
 
 def list_conditions_activities() -> list:
+    """Remembered briefly."""
+    return _catalog_cache.get(("activities",), _list_conditions_activities_uncached)
+
+
+def _list_conditions_activities_uncached() -> list:
     """Activities that have a conditions view, driven by activities.config.conditions_enabled."""
     with get_session() as db:
         rows = db.execute(select(Activity).where(Activity.is_active.is_(True))).scalars().all()
@@ -137,6 +164,12 @@ def list_conditions_activities() -> list:
 
 
 def list_spots_for_activity(activity_slug: str, include_private: bool = False) -> list:
+    """Remembered briefly. NotFound is never remembered."""
+    return _catalog_cache.get(("spots", activity_slug, bool(include_private)),
+                              lambda: _list_spots_for_activity_uncached(activity_slug, include_private))
+
+
+def _list_spots_for_activity_uncached(activity_slug: str, include_private: bool = False) -> list:
     """Public spots that support the activity. include_private is preview mode only."""
     with get_session() as db:
         act = db.execute(

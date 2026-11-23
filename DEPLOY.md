@@ -154,6 +154,10 @@ By default the public sees the facts only. Two separate switches change that. Bo
 
 **To turn it off:** delete `WSK_PROVISIONAL_GUIDANCE` in Render and deploy. The page goes back to facts only. To remove the sectors as well: `bash scripts/migrate.sh --live downgrade -1`.
 
+## Speed: the short cache (optional setting)
+
+The API remembers a spot's rules, sectors and launch point, and the sport and spot lists, for 2 minutes, so most requests skip the database. A change to a rule, sector or launch point shows up within that time. To change it, add `WSK_CONTEXT_CACHE_SECONDS` in Render and deploy: `0` turns the cache off, and a larger number remembers for longer. Weather and tide data have their own timing and are not affected.
+
 **Never set `WSK_SHOW_PRIVATE_SPOTS` on Render.** It is a different switch: it also reveals private spots.
 
 **What the public sees while this is on:** the headline (for example "Light air"), a status such as "Below provisional range", a limits line that says "Ranges provisional", and direction notes from the provisional sectors. The offshore note for beginners says "Independent practice is not recommended under this scenario." That is the strongest sentence the page says, and it rests on provisional sectors.
