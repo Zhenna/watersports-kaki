@@ -23,6 +23,14 @@ if [ ! -f "$src" ]; then echo "Not a file: $src"; exit 2; fi
 root="$(cd "$(dirname "$0")/.." && pwd)"
 out="$root/frontend/og-app-$version.png"
 
+# An old screenshot is the usual reason a "new" picture comes out unchanged.
+if [ -n "$(find "$src" -mmin +30 2>/dev/null)" ]; then
+  echo "Note: this screenshot is more than 30 minutes old. If you have just changed the page, capture the picture again first."
+fi
+before="$(mktemp)"; trap 'rm -f "$before"' EXIT
+if [ -f "$out" ]; then cp "$out" "$before"; else : > "$before"; had=no; fi
+had="${had:-yes}"
+
 w=$(sips -g pixelWidth "$src" | awk '/pixelWidth/ {print $2}')
 h=$(sips -g pixelHeight "$src" | awk '/pixelHeight/ {print $2}')
 if [ -z "$w" ] || [ -z "$h" ]; then echo "Could not read the size of $src. Is it a PNG screenshot?"; exit 2; fi
@@ -50,6 +58,10 @@ ow=$(sips -g pixelWidth "$out" | awk '/pixelWidth/ {print $2}')
 oh=$(sips -g pixelHeight "$out" | awk '/pixelHeight/ {print $2}')
 bytes=$(wc -c < "$out" | tr -d ' ')
 echo "Saved frontend/og-app-$version.png: ${ow} by ${oh}, ${bytes} bytes"
+if [ "$had" = "yes" ] && cmp -s "$before" "$out"; then
+  echo "Note: this is identical to the picture that was already there, so nothing has changed."
+  echo "If you meant to replace it, this screenshot is the old one. Capture the picture again from a freshly reloaded page."
+fi
 if [ "$ow" -ne 1200 ] || [ "$oh" -ne 630 ]; then rm -f "$out"; echo "The result was ${ow} by ${oh}, not 1200 by 630. Nothing was saved."; exit 1; fi
 if [ "$bytes" -gt 300000 ]; then
   rm -f "$out"

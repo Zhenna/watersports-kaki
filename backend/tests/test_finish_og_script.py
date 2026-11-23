@@ -127,6 +127,41 @@ class FinishOg(unittest.TestCase):
             self.assertIn('id="dark"', r.stdout)
             self.assertFalse(self.out("dark").exists())
 
+    def test_running_it_again_on_the_same_screenshot_says_nothing_has_changed(self):
+        shot = self.picture("shot.png", 2400, 1260)
+        first = self.run_script(shot, "light")
+        self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+        self.assertNotIn("identical", first.stdout)                        # nothing was there to compare with
+        again = self.run_script(shot, "light")
+        self.assertEqual(again.returncode, 0)
+        self.assertIn("identical to the picture that was already there", again.stdout)
+        self.assertIn("freshly reloaded page", again.stdout)
+
+    def test_a_different_screenshot_replaces_it_without_that_note(self):
+        self.run_script(self.picture("old.png", 2400, 1260, size=3000), "light")
+        r = self.run_script(self.picture("new.png", 2400, 1260, size=5000), "light")
+        self.assertEqual(r.returncode, 0)
+        self.assertNotIn("identical", r.stdout)
+        self.assertGreater(self.out("light").stat().st_size, 4000)                      # the bigger new picture replaced the smaller old one
+
+    def test_a_screenshot_more_than_half_an_hour_old_is_flagged_but_still_used(self):
+        old = self.picture("old.png", 2400, 1260)
+        two_hours_ago = old.stat().st_mtime - 7200
+        os.utime(old, (two_hours_ago, two_hours_ago))
+        r = self.run_script(old, "dark")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("more than 30 minutes old", r.stdout)
+        self.assertTrue(self.out("dark").exists())
+
+    def test_a_fresh_screenshot_is_not_flagged(self):
+        r = self.run_script(self.picture("fresh.png", 2400, 1260), "light")
+        self.assertNotIn("minutes old", r.stdout)
+
+    def test_the_other_version_is_never_compared(self):
+        self.run_script(self.picture("a.png", 2400, 1260), "light")
+        r = self.run_script(self.picture("a.png", 2400, 1260), "dark")        # same content, but the dark picture is new
+        self.assertNotIn("identical", r.stdout)
+
     def test_the_wrong_shape_is_refused_and_nothing_is_saved(self):
         r = self.run_script(self.picture("page.png", 1400, 900), "light")
         self.assertEqual(r.returncode, 1)
