@@ -98,6 +98,7 @@ function colour(stage) {
   const solid = (c) => (rgb(c).length === 3 && !/rgba\(.*,\s*0\)$/.test(c) ? c : "#f5f8fd");
   if (stage.dataset.version === "light") {
     stage.style.backgroundColor = solid(page.backgroundColor);
+    stage.querySelector(".brand").style.color = navy;          // the page's header is a dark bar with a white name; here the name sits on the light background
     stage.querySelector(".domain").style.color = grey;
   } else {
     stage.style.backgroundColor = navy;                       // your own heading colour becomes the background

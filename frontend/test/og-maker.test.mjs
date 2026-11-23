@@ -58,3 +58,11 @@ test("a click on a picture selects the picture box, so Inspect finds the right e
   assert.match(maker, /Right-click the picture itself/);
   assert.match(maker, /rename the file to <code>light\.png<\/code> or <code>dark\.png<\/code>/i);
 });
+
+test("the brand name is readable in both pictures: heading colour on the light one, white on the dark one", () => {
+  const script = /<script>([\s\S]*)<\/script>/.exec(maker)[1];
+  const light = /if \(stage\.dataset\.version === "light"\) \{([\s\S]*?)\} else \{/.exec(script)[1];
+  const dark = /\} else \{([\s\S]*?)\n  \}\n\}/.exec(script)[1];
+  assert.match(light, /\.brand"\)\.style\.color = navy/);           // your page's header is a dark bar with a white name
+  assert.match(dark, /\.brand"\)\.style\.color = "#fff"/);
+});

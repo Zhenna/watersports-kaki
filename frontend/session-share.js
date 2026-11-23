@@ -4,7 +4,7 @@
 // numbers, no verdict. The link carries the sport, the place, the day and the time, and never the sender's skill level.
 
 export const SITE_APP_URL = "https://www.watersportskaki.sg/app/";
-export const OG_IMAGE_URL = "https://www.watersportskaki.sg/app/og-app-light.png";   // made from the page's own hero by og-maker.html
+export const OG_IMAGE_URL = "https://www.watersportskaki.sg/app/og-app-light.png?v=2";   // made from the page's own hero by og-maker.html. Add 1 to v when the picture changes, so WhatsApp fetches it again
 // What WhatsApp shows for any link to the app. These are also the page's Open Graph tags, and a test keeps them in step.
 export const OG_TITLE = "Learn watersports. Find your kakis.";            // the app page's own heading
 export const OG_DESCRIPTION = "Know when to go, find people to go with, and discover what to try next.";   // its own sub line

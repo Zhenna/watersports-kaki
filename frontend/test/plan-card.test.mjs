@@ -262,6 +262,7 @@ test("the panel says plainly that WSK books nothing and the message has no numbe
   const r = run({ session: { open: true, slot: "am", message: MSG, shareUrl: "x" } });
   const panelNote = byClass(byClass(r.host, "wsk-pc-panel")[0], "wsk-pc-fn")[0];
   assert.match(text(panelNote), /WSK doesn't book sessions or keep a list of who joins\. The message has no wind or tide numbers, because they change\./);
+  assert.match(text(panelNote), /On WhatsApp Web, wait a few seconds for the preview to appear before you send\./);
 });
 
 test("the guidance summary and small print are tucked into a closed Details, and opening it tells the page", () => {

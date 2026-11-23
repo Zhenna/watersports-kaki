@@ -228,7 +228,7 @@ function sessionPanel(m, h) {
   acts.appendChild(share);
   acts.appendChild(copy);
   panel.appendChild(acts);
-  panel.appendChild(el("p", "wsk-pc-fn", "WSK doesn't book sessions or keep a list of who joins. The message has no wind or tide numbers, because they change. WhatsApp may show a preview like this."));
+  panel.appendChild(el("p", "wsk-pc-fn", "WSK doesn't book sessions or keep a list of who joins. The message has no wind or tide numbers, because they change. WhatsApp may show a preview like this. On WhatsApp Web, wait a few seconds for the preview to appear before you send."));
   return panel;
 }
 
