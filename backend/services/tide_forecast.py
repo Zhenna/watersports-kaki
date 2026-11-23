@@ -1,5 +1,5 @@
 """
-The tide part of the forecast response: for each day, a word for the morning and the afternoon, and the hourly tide.
+The tide part of the forecast response: for each day, a word for the morning and the afternoon.
 Pure, so it is unit-testable. It reads the same NEA/MPA table as the tide card and adds no new source.
 
 AM is 06:00 to 12:00 and PM is 12:00 to 18:00, which matches NEA's own forecast periods. The word for a period is the
@@ -15,7 +15,7 @@ from datetime import date, datetime, timedelta
 from typing import Optional
 
 from services.tide_payload import NOTE, SOURCE
-from services.tide_table import SGT, coverage_end, tide_now
+from services.tide_table import SGT, coverage_end
 
 log = logging.getLogger(__name__)
 
@@ -67,29 +67,12 @@ def period_word(extremes, day: date, start_h: int, end_h: int) -> Optional[str]:
     return "Rising, then falling" if first == "rising" else "Falling, then rising"
 
 
-def hourly(extremes, day: date) -> Optional[list]:
-    """The tide each hour from 06:00 to 17:00, an estimate between the predicted highs and lows. None if any hour is outside the table."""
-    rows = []
-    for h in range(PERIODS["am"][0], PERIODS["pm"][1]):
-        s = tide_now(extremes, _at(day, h))
-        if s is None:
-            return None
-        rows.append({"time": f"{h:02d}:00", "height_m": s["height_estimate_m"], "state": s["state"]})
-    return rows
-
-
-def extremes_in_day_window(extremes, day: date) -> list:
-    lo, hi = _at(day, PERIODS["am"][0]), _at(day, PERIODS["pm"][1])
-    return [{"kind": e.kind, "time": e.at.astimezone(SGT).strftime("%H:%M"), "height_m": e.height_m}
-            for e in extremes if lo <= e.at <= hi]
-
-
 def tide_for_day(extremes, day: date) -> Optional[dict]:
     am = period_word(extremes, day, *PERIODS["am"])
     pm = period_word(extremes, day, *PERIODS["pm"])
     if am is None and pm is None:
         return None
-    return {"am": am, "pm": pm, "hourly": hourly(extremes, day), "extremes": extremes_in_day_window(extremes, day)}
+    return {"am": am, "pm": pm}
 
 
 def add_tide_to_forecast(payload, table) -> None:

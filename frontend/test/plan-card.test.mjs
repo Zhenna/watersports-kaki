@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { renderPlanCard, PLAN_CSS } from "../plan-card.js";
-import { OG_TITLE, OG_DESCRIPTION, waShareUrl } from "../session-share.js";
+import { OG_TITLE, OG_DESCRIPTION, OG_IMAGE_URL, waShareUrl } from "../session-share.js";
 
 // ---- a small fake page
 function node(tag) {
@@ -49,25 +49,25 @@ const VIEW = {
   ],
   assessment: { headline: "Light breeze to moderate breeze", pill: "Within provisional range" },
   summary: "Summary text.", small: "Small print.", stale: false,
-  tide: { hourly: [{ time: "06:00", height_m: 1.7, state: "rising" }, { time: "12:00", height_m: 2.5, state: "falling" }], extremes: [{ kind: "high", time: "10:01", height_m: 3.1 }] },
-  tideNote: "Predicted, not measured.",
+  tidePredicted: true,
+  tideNote: "Predicted, not measured. Heights are metres above Chart Datum, not water depth at the launch.",
 };
 const MSG = "Windsurfing at East Coast Parkway (Carpark E5), Tue 24 Nov, morning. Who's in? Link";
 const model = (over = {}) => ({
   sub: "Windsurfing \u00b7 East Coast Parkway (Carpark E5) \u00b7 Beginner", days: DAYS, selected: 0, status: "ok", errorText: "Forecast unavailable right now. Note.",
   view: VIEW, dayLabel: "Tue, 24 Nov", invited: null,
   session: { open: false, slot: "am", message: MSG, shareUrl: waShareUrl(MSG) },
-  hourlyOpen: false, interest: { href: "https://forms.gle/x", text: "Prefer to be matched with others? Register your interest \u203a", hint: "Weekday times aren't in the form yet." },
+  interest: { href: "https://forms.gle/x", text: "Prefer to be matched with others? Register your interest \u203a", hint: "Weekday times aren't in the form yet." },
   focus: null, ...over,
 });
 function run(over = {}, hover = {}, env) {
   focused = [];
   const p = page(env);
-  const calls = { day: [], session: 0, slot: [], share: 0, copy: 0, hourly: 0, details: 0, interest: 0 };
+  const calls = { day: [], session: 0, slot: [], share: 0, copy: 0, details: 0, interest: 0 };
   const h = {
     onDay: (i) => calls.day.push(i), onSession: () => { calls.session += 1; }, onSlot: (k) => calls.slot.push(k),
     onShare: () => { calls.share += 1; }, onCopy: () => { calls.copy += 1; return Promise.resolve(true); },
-    onHourly: () => { calls.hourly += 1; }, onDetailsOpened: () => { calls.details += 1; }, onInterest: () => { calls.interest += 1; }, ...hover,
+    onDetailsOpened: () => { calls.details += 1; }, onInterest: () => { calls.interest += 1; }, ...hover,
   };
   const m = model(over);
   renderPlanCard(p.host, m, h);
@@ -213,11 +213,15 @@ test("opened, the panel offers AM, PM or both, the preview, the message and the 
   assert.deepEqual(r.calls.slot, ["both"]);
 });
 
-test("the preview in the panel is the card WhatsApp will really show, the same for every share", () => {
+test("the preview in the panel is the card WhatsApp will really show: your own picture and wording, the same for every share", () => {
   const r = run({ session: { open: true, slot: "am", message: MSG, shareUrl: waShareUrl(MSG) } });
   const card = byClass(r.host, "wsk-pc-card")[0];
-  assert.match(text(byClass(card, "wsk-pc-img")[0]), /WaterSports Kaki.*Forecast, wind and tide for watersports in Singapore/);
+  const img = byTag(card, "img")[0];
+  assert.equal(img.src, OG_IMAGE_URL);                                       // the picture the landing page already uses, not a drawing
+  assert.equal(img.alt, "WaterSports Kaki");
+  assert.equal(byClass(card, "wsk-pc-img")[0], img);
   assert.equal(text(byClass(card, "wsk-pc-ct")[0]), `${OG_TITLE}${OG_DESCRIPTION}watersportskaki.sg`);
+  assert.doesNotMatch(text(card), /Forecast, wind and tide/);                // none of the wording that was invented for the first picture
   assert.doesNotMatch(text(card), /Tue|24 Nov|morning|afternoon/);        // it does not claim to show the day, because it cannot
 });
 
@@ -256,41 +260,8 @@ test("Copy message says Copied when it worked and Couldn't copy when it did not"
 
 test("the panel says plainly that WSK books nothing and the message has no numbers", () => {
   const r = run({ session: { open: true, slot: "am", message: MSG, shareUrl: "x" } });
-  assert.match(text(byClass(r.host, "wsk-pc-fn")[0]), /WSK doesn't book sessions or keep a list of who joins\. The message has no wind or tide numbers, because they change\./);
-});
-
-test("hourly details is a small footnote link, closed at first", () => {
-  const r = run();
-  const f = byClass(r.host, "wsk-pc-foot")[0];
-  assert.equal(text(f), "View hourly details \u203a");
-  assert.equal(f.attrs["aria-expanded"], "false");
-  assert.equal(f.className, "wsk-pc-foot");
-  assert.equal(byClass(r.host, "wsk-pc-hr").length, 0);
-  f.click();
-  assert.equal(r.calls.hourly, 1);
-});
-
-test("opened, the hourly panel lists the tide by hour, the highs and lows, and says what NEA does not publish", () => {
-  const r = run({ hourlyOpen: true });
-  assert.equal(text(byClass(r.host, "wsk-pc-foot")[0]), "Hide hourly details \u02c4");
-  const panel = byClass(r.host, "wsk-pc-hr")[0];
-  assert.match(text(panel), /High 10:01 \(3\.1 m\)/);
-  const rows = byTag(byTag(panel, "tbody")[0], "tr");
-  assert.deepEqual(rows.map(text), ["06:001.7 m, rising", "12:002.5 m, falling"]);
-  assert.deepEqual(rows.map((x) => x.className), ["", "pmr"]);
-  assert.match(text(panel), /Predicted, not measured\./);
-  assert.match(text(panel), /NEA publishes no hourly wind or gust forecast\./);
-  assert.match(text(panel), /not water depth/);
-});
-
-test("with no hourly tide the panel says so and still says what NEA does not publish", () => {
-  const r = run({ hourlyOpen: true, view: { ...VIEW, tide: null } });
-  const panel = byClass(r.host, "wsk-pc-hr")[0];
-  assert.match(text(panel), /Hourly tide isn't available for this day\./);
-  assert.match(text(panel), /NEA publishes no hourly wind or gust forecast\./);
-  assert.equal(byTag(panel, "table").length, 0);
-  const r2 = run({ hourlyOpen: true, view: { ...VIEW, tide: { hourly: null, extremes: [] } } });
-  assert.match(text(byClass(r2.host, "wsk-pc-hr")[0]), /isn't available/);
+  const panelNote = byClass(byClass(r.host, "wsk-pc-panel")[0], "wsk-pc-fn")[0];
+  assert.match(text(panelNote), /WSK doesn't book sessions or keep a list of who joins\. The message has no wind or tide numbers, because they change\./);
 });
 
 test("the guidance summary and small print are tucked into a closed Details, and opening it tells the page", () => {
@@ -300,12 +271,14 @@ test("the guidance summary and small print are tucked into a closed Details, and
   assert.equal(text(d.children[0]), "Details");
   assert.match(text(d), /Summary text\./);
   assert.match(text(d), /Small print\./);
+  assert.match(text(d), /Predicted, not measured\. Heights are metres above Chart Datum, not water depth at the launch\./);
   assert.match(text(d), /Lightning is checked live on the day\. See Right now\./);
   d.open = false; d.fire("toggle");
   assert.equal(r.calls.details, 0);
   d.open = true; d.fire("toggle");
   assert.equal(r.calls.details, 1);
-  assert.equal(byTag(run({ view: { ...VIEW, summary: null, small: "" } }).host, "details").length, 0);
+  assert.equal(byTag(run({ view: { ...VIEW, summary: null, small: "", tideNote: null } }).host, "details").length, 0);
+  assert.equal(byTag(run({ view: { ...VIEW, summary: null, small: "" } }).host, "details").length, 1);      // the tide note alone is enough to keep it
 });
 
 test("the interest line keeps the form link and the hint about which box to tick", () => {
@@ -336,7 +309,6 @@ test("the time a shared link named is marked on its card, or on both", () => {
 test("after a redraw, focus goes back to the control that was used", () => {
   assert.deepEqual((run({ focus: "session" }), focused), ["session"]);
   assert.deepEqual((run({ focus: "day-1" }), focused), ["day-1"]);
-  assert.deepEqual((run({ focus: "hourly" }), focused), ["hourly"]);
   assert.deepEqual((run({ focus: "slot-pm", session: { open: true, slot: "pm", message: MSG, shareUrl: "x" } }), focused), ["slot-pm"]);
   assert.deepEqual((run({ focus: "nothing-here" }), focused), []);
   assert.deepEqual((run({ focus: null }), focused), []);
@@ -379,7 +351,7 @@ test("its style sheet is added once, only to the head, and only touches the plan
 });
 
 test("the card carries no wind or tide numbers in its invitation preview and no operator names anywhere", () => {
-  const r = run({ session: { open: true, slot: "am", message: MSG, shareUrl: waShareUrl(MSG) }, hourlyOpen: true });
+  const r = run({ session: { open: true, slot: "am", message: MSG, shareUrl: waShareUrl(MSG) } });
   assert.doesNotMatch(text(r.host), /PAssion|WaVe|Aloha|Constant Wind|operator|partner network/i);
 });
 
@@ -391,12 +363,30 @@ test("the card needs only createElement, getElementById and the basics, like the
     getElementById: () => null,
   };
   const host = node("section");
-  assert.doesNotThrow(() => renderPlanCard(host, model({ session: { open: true, slot: "pm", message: MSG, shareUrl: waShareUrl(MSG) }, hourlyOpen: true }), {
-    onDay() {}, onSession() {}, onSlot() {}, onShare() {}, onCopy: () => Promise.resolve(true), onHourly() {},
+  assert.doesNotThrow(() => renderPlanCard(host, model({ session: { open: true, slot: "pm", message: MSG, shareUrl: waShareUrl(MSG) } }), {
+    onDay() {}, onSession() {}, onSlot() {}, onShare() {}, onCopy: () => Promise.resolve(true),
   }));
   assert.match(text(host), /Find your next Water Day/);
   assert.match(text(host), /Partly cloudy/);
   assert.match(text(host), /Thundery showers forecast for the afternoon\./);
   assert.match(text(host), /Conditions can change\. Check updated forecasts and official warnings on the day\./);
   assert.ok(h);
+});
+
+test("under the cards, one short line says the tide is predicted, and only when a tide is shown", () => {
+  const r = run();
+  const line = byClass(r.host, "wsk-pc-fn")[0];
+  assert.equal(text(line), "Tide is predicted by NEA, not measured.");
+  assert.equal(byClass(run({ view: { ...VIEW, tidePredicted: false } }).host, "wsk-pc-fn").length, 0);
+  const order = r.host.children.map((c) => c.className);
+  assert.ok(order.indexOf("wsk-pc-fn") > order.indexOf("wsk-pc-two"), "after the cards");
+  assert.ok(order.indexOf("wsk-pc-fn") < order.indexOf("wsk-pc-session"), "before the invitation");
+});
+
+test("there is no hourly footnote, panel or button any more", () => {
+  const r = run();
+  assert.equal(byClass(r.host, "wsk-pc-foot").length, 0);
+  assert.equal(byClass(r.host, "wsk-pc-hr").length, 0);
+  assert.doesNotMatch(text(r.host), /hourly/i);
+  assert.doesNotMatch(PLAN_CSS, /wsk-pc-foot|wsk-pc-hr/);
 });

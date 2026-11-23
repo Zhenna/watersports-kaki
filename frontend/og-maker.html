@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>WaterSports Kaki: link preview maker (a tool, not published)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@800;900&family=Caveat:wght@600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<style>
+/* Only the frame is set here. The words, fonts, colours and the underline come from styles.css and the hero markup below. */
+.maker{box-sizing:border-box;width:1248px;padding:24px;font-family:Inter,system-ui,sans-serif}
+.maker .howto{font-size:15px;line-height:22px;max-width:900px;margin:0 0 20px;color:#334155}
+.maker .howto b{color:#0f172a}
+.maker h2{font-size:15px;line-height:20px;margin:22px 0 8px;padding:0;color:#0f172a}
+.og{position:relative;width:1200px;height:630px;overflow:hidden;box-sizing:border-box;outline:1px solid rgba(0,0,0,.15)}
+.og .fit{position:absolute;left:80px;top:60px;transform-origin:0 0}
+.og .hero{margin:0;padding:0;max-width:none;width:auto;text-align:left;background:none}
+.og .hero h1{white-space:nowrap;margin-left:0}
+.og .hero .lede{margin-left:0}
+.og .brandrow{position:absolute;left:80px;bottom:44px;transform-origin:0 100%}
+.og .brandrow header.top{position:static;display:flex;align-items:center;margin:0;padding:0;background:none;border:0;box-shadow:none;width:auto}
+.og *{pointer-events:none}   /* so a click or right-click on a picture selects the picture box itself, not the text inside */
+.og .domain{position:absolute;right:80px;bottom:56px;font-size:30px;font-weight:500;line-height:1}
+</style>
+</head>
+<body>
+<div class="maker">
+  <p class="howto"><b>How to save the two pictures.</b> Use a normal desktop-width Chrome window and wait a second for the fonts. Right-click the picture itself and choose <b>Inspect</b>. DevTools highlights a line (<code>div class="og" id="light"</code> or <code>id="dark"</code>), and the whole picture turns blue when you hover it. If it does not, click that line yourself. Press <b>Cmd+Shift+P</b>, type <b>Capture node screenshot</b> and press Enter. Then rename the file to <code>light.png</code> or <code>dark.png</code> and run <code>bash scripts/finish_og.sh ~/Downloads/light.png light</code> (or <code>dark</code>). This page is a tool. It is not copied to the live site.</p>
+
+  <h2>Light, like the page</h2>
+  <div class="og" id="light" data-version="light">
+    <div class="fit">
+      <section class="hero">
+        <h1>Learn watersports.<br><span class="handwrite">Find your kakis.</span></h1>
+        <p class="lede">Know when to go, find people to go with, and discover what to try next.</p>
+      </section>
+    </div>
+    <div class="brandrow">
+      <header class="top"><img src="logo-emblem.png" alt=""><div class="brand">WaterSports Kaki</div></header>
+    </div>
+    <div class="domain">watersportskaki.sg</div>
+  </div>
+
+  <h2>Dark, same words on the heading colour</h2>
+  <div class="og" id="dark" data-version="dark">
+    <div class="fit">
+      <section class="hero">
+        <h1>Learn watersports.<br><span class="handwrite">Find your kakis.</span></h1>
+        <p class="lede">Know when to go, find people to go with, and discover what to try next.</p>
+      </section>
+    </div>
+    <div class="brandrow">
+      <header class="top"><img src="logo-emblem.png" alt=""><div class="brand">WaterSports Kaki</div></header>
+    </div>
+    <div class="domain">watersportskaki.sg</div>
+  </div>
+</div>
+
+<script>
+// Sizes each hero to fill its picture, and takes the colours from your own page.
+const HEADLINE_W = 980, LEDE_W = 900, HERO_TOP = 60, HERO_LIMIT = 630 - 150, LOGO_H = 64;
+const rgb = (c) => (c.match(/[\d.]+/g) || [0, 0, 0]).slice(0, 3).map(Number);
+const mix = (c, to, t) => `rgb(${rgb(c).map((v, i) => Math.round(v + (to[i] - v) * t)).join(",")})`;
+
+function sizeHero(stage) {
+  const box = stage.querySelector(".fit"), h1 = box.querySelector("h1"), lede = box.querySelector(".lede");
+  box.style.transform = "none"; box.style.width = "max-content"; lede.style.width = "auto"; lede.style.maxWidth = "none";
+  h1.style.display = "inline-block";
+  const natural = h1.getBoundingClientRect().width;            // the widest line of the heading, at its normal size
+  h1.style.display = "";
+  let k = HEADLINE_W / natural;
+  for (let i = 0; i < 5; i++) {
+    lede.style.width = `${LEDE_W / k}px`;
+    box.style.width = `${Math.max(natural, LEDE_W / k)}px`;
+    const room = (HERO_LIMIT - HERO_TOP) / box.offsetHeight;
+    if (k <= room + 0.001) break;
+    k = room;
+  }
+  box.style.transform = `scale(${k})`;
+  const used = box.offsetHeight * k;                          // centre it in the space above the brand row
+  box.style.top = `${HERO_TOP + Math.max(0, (HERO_LIMIT - HERO_TOP - used) / 2)}px`;
+  return k;
+}
+
+function sizeBrand(stage) {
+  const row = stage.querySelector(".brandrow"), img = row.querySelector("img");
+  const h = img.getBoundingClientRect().height || 36;
+  row.style.transform = `scale(${LOGO_H / h})`;
+}
+
+function colour(stage) {
+  const page = getComputedStyle(document.body);
+  const h1 = stage.querySelector("h1"), script = stage.querySelector(".handwrite"), lede = stage.querySelector(".lede");
+  const navy = getComputedStyle(h1).color, blue = getComputedStyle(script).color, grey = getComputedStyle(lede).color;
+  const solid = (c) => (rgb(c).length === 3 && !/rgba\(.*,\s*0\)$/.test(c) ? c : "#f5f8fd");
+  if (stage.dataset.version === "light") {
+    stage.style.backgroundColor = solid(page.backgroundColor);
+    stage.querySelector(".domain").style.color = grey;
+  } else {
+    stage.style.backgroundColor = navy;                       // your own heading colour becomes the background
+    h1.style.color = "#fff";
+    script.style.color = mix(blue, [255, 255, 255], 0.5);
+    script.style.textDecorationColor = blue;
+    lede.style.color = mix(grey, [255, 255, 255], 0.65);
+    stage.querySelector(".brand").style.color = "#fff";
+    stage.querySelector(".domain").style.color = mix(grey, [255, 255, 255], 0.65);
+  }
+}
+
+async function build() {
+  await document.fonts.ready;
+  await Promise.all([...document.images].map((i) => (i.complete ? 0 : new Promise((r) => { i.onload = i.onerror = r; }))));
+  for (const stage of document.querySelectorAll(".og")) { colour(stage); sizeHero(stage); sizeBrand(stage); }
+  for (const stage of document.querySelectorAll(".og")) {          // sit each picture on a whole pixel, so a capture is exactly 630 tall
+    const top = stage.getBoundingClientRect().top + window.scrollY, left = stage.getBoundingClientRect().left + window.scrollX;
+    const fixTop = Math.ceil(top) - top, fixLeft = Math.ceil(left) - left;
+    if (fixTop > 0.001) stage.style.marginTop = `${fixTop}px`;
+    if (fixLeft > 0.001) stage.style.marginLeft = `${fixLeft}px`;
+  }
+  window.__ogReady = true;
+}
+build();
+</script>
+</body>
+</html>

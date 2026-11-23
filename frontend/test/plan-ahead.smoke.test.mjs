@@ -32,7 +32,7 @@ const slot = (text, thundery = false, source = "nea_24h") => ({ text, thundery, 
 const fday = (d, over = {}) => ({
   date: d.iso, stale: false, wind: { knots_low: 5.4, knots_high: 10.8, direction: "NNE" },
   slots: { AM: slot("Partly Cloudy (Day)"), PM: slot("Thundery Showers", true) }, guidance: {},
-  tide: { am: "Rising", pm: "Falling", hourly: [{ time: "06:00", height_m: 1.7, state: "rising" }, { time: "12:00", height_m: 2.5, state: "falling" }], extremes: [{ kind: "high", time: "10:01", height_m: 3.1 }] },
+  tide: { am: "Rising", pm: "Falling" },
   ...over,
 });
 const forecastPayload = (days = DAYS.slice(0, 4).map((d, i) => (i === 1 ? fday(d, { slots: { AM: slot("Showers"), PM: slot("Showers") } }) : fday(d)))) =>
@@ -257,26 +257,11 @@ test("a shared link opens Plan ahead on its day and time, and bad values are ign
   assert.deepEqual(bad.cards().map((c) => c.className.includes("invited")), [false, false]);
 });
 
-test("hourly details opens from a footnote, shows the tide by hour, and is counted once per opening", async () => {
-  const t = await boot();
-  const foot = byClass(t.plan, "wsk-pc-foot")[0];
-  assert.equal(text(foot), "View hourly details \u203a");
-  assert.equal(byClass(t.plan, "wsk-pc-hr").length, 0);
-  foot.click();
-  assert.match(text(byClass(t.plan, "wsk-pc-hr")[0]), /06:00\s*1\.7 m, rising/);
-  assert.match(text(byClass(t.plan, "wsk-pc-hr")[0]), /NEA publishes no hourly wind or gust forecast\./);
-  byClass(t.plan, "wsk-pc-foot")[0].click();                                   // close
-  assert.equal(byClass(t.plan, "wsk-pc-hr").length, 0);
-  byClass(t.plan, "wsk-pc-foot")[0].click();                                   // open again
-  assert.equal(t.names().filter((n) => n === "hourly_details_opened").length, 2);
-});
-
 test("a day with no tide data says Not available, and the rest of the card still works", async () => {
   const days = DAYS.slice(0, 4).map((d) => fday(d, { tide: undefined }));
   const t = await boot({ forecast: forecastPayload(days) });
   for (const c of t.cards()) assert.match(text(c), /Tide\s*Not available/);
-  byClass(t.plan, "wsk-pc-foot")[0].click();
-  assert.match(text(byClass(t.plan, "wsk-pc-hr")[0]), /Hourly tide isn't available for this day\./);
+  assert.doesNotMatch(text(t.plan), /Tide is predicted by NEA/);                // nothing to call a prediction
   assert.equal(byClass(t.plan, "wsk-pc-session").length, 1);
 });
 
@@ -294,4 +279,13 @@ test("switching to Never tried does not break Plan ahead's next visit, and no re
   const t = await boot({ query: "?activity=windsurf&spot=east-coast-parkway-carpark-e5&level=never_tried" });
   assert.equal(t.fetched.some((u) => u.includes("/conditions") || u.includes("/forecast")), false);
   assert.equal(t.els["entry-panel"].hidden, false);
+});
+
+test("the tide is said to be a prediction under the cards, with the full note in Details, and there is no hourly panel", async () => {
+  const t = await boot();
+  assert.match(text(byClass(t.plan, "wsk-pc-fn")[0]), /^Tide is predicted by NEA, not measured\.$/);
+  assert.match(text(byTag(t.plan, "details")[0]), /Predicted, not measured\./);
+  assert.equal(byClass(t.plan, "wsk-pc-foot").length, 0);
+  assert.doesNotMatch(text(t.plan), /hourly/i);
+  assert.equal(t.names().includes("hourly_details_opened"), false);
 });

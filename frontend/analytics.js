@@ -38,7 +38,6 @@ export const EVENTS = {
   session_create_clicked: ["sport", "location"],
   session_share_clicked: ["sport", "location", "slot"],
   session_copy_clicked: ["sport", "location", "slot"],
-  hourly_details_opened: ["sport", "location"],
   plan_interest_clicked: ["sport", "location"],
   feedback_link_clicked: ["source_page", "placement"],
   partners_link_clicked: ["source_page", "placement"],

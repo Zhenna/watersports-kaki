@@ -388,13 +388,13 @@ test("a tagged button sends its choice with the click", () => {
   assert.deepEqual([...e.win.dataLayer[e.win.dataLayer.length - 1]], ["event", "early_access_form_clicked", { source_page: "home", placement: "page", choice: "track_progress" }]);
 });
 
-test("the session and hourly events carry only the sport, the place and the time", () => {
+test("the session events carry only the sport, the place and the time", () => {
   assert.deepEqual(cleanParams("session_create_clicked", { sport: "windsurf", location: "east-coast", slot: "am", email: "a@b.sg" }), { sport: "windsurf", location: "east-coast" });
   for (const name of ["session_share_clicked", "session_copy_clicked"]) {
     assert.deepEqual(cleanParams(name, { sport: "windsurf", location: "x", slot: "both", text: "Windsurfing at East Coast" }), { sport: "windsurf", location: "x", slot: "both" }, name);
     assert.deepEqual(cleanParams(name, { slot: "morning and afternoon" }), {}, name);               // not a plain word, so dropped
   }
-  assert.deepEqual(cleanParams("hourly_details_opened", { sport: "windsurf", slot: "am" }), { sport: "windsurf" });
+  assert.equal(cleanParams("hourly_details_opened", { sport: "windsurf" }), null);                 // the hourly panel is gone, so its event is too
   assert.deepEqual(cleanParams("plan_interest_clicked", { sport: "windsurf", location: "x" }), { sport: "windsurf", location: "x" });
 });
 

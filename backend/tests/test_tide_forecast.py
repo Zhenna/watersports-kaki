@@ -1,9 +1,7 @@
 import unittest
 from datetime import date, datetime
 
-from services.tide_forecast import (
-    add_tide_to_forecast, extremes_in_day_window, hourly, period_word, tide_for_day,
-)
+from services.tide_forecast import add_tide_to_forecast, period_word, tide_for_day
 from services.tide_table import SGT, Extreme, parse_tide_page
 from tests.test_tide_table import page
 
@@ -54,32 +52,10 @@ class Words(unittest.TestCase):
         self.assertEqual(seen & {"Rising", "Falling"}, {"Rising", "Falling"})
 
 
-class Hourly(unittest.TestCase):
-    def test_twelve_hours_from_six_to_five(self):
-        rows = hourly(EX, date(2026, 11, 24))
-        self.assertEqual([r["time"] for r in rows], [f"{h:02d}:00" for h in range(6, 18)])
-        self.assertEqual((rows[0]["height_m"], rows[0]["state"]), (1.7, "rising"))        # 06:00, after the 04:20 low
-        self.assertEqual((rows[6]["height_m"], rows[6]["state"]), (2.5, "falling"))       # 12:00, after the 10:01 high
-        self.assertEqual(rows[10]["height_m"], 0.3)                                       # 16:00, just before the low
-        for r in rows:
-            self.assertIn(r["state"], ("rising", "falling"))
-            self.assertTrue(0.0 <= r["height_m"] <= 3.5)
-
-    def test_none_if_any_hour_is_outside_the_table(self):
-        self.assertIsNone(hourly(EX, date(2027, 6, 1)))
-        self.assertIsNone(hourly([], date(2026, 11, 24)))
-
-    def test_the_highs_and_lows_in_the_window(self):
-        got = extremes_in_day_window(EX, date(2026, 11, 24))
-        self.assertEqual(got, [{"kind": "high", "time": "10:01", "height_m": 3.1}, {"kind": "low", "time": "16:33", "height_m": 0.3}])
-
-
 class Day(unittest.TestCase):
     def test_a_covered_day(self):
         t = tide_for_day(EX, date(2026, 11, 24))
-        self.assertEqual((t["am"], t["pm"]), ("Rising", "Falling"))
-        self.assertEqual(len(t["hourly"]), 12)
-        self.assertEqual(len(t["extremes"]), 2)
+        self.assertEqual(t, {"am": "Rising", "pm": "Falling"})                  # just the two words, nothing hourly
 
     def test_an_uncovered_day_is_none(self):
         self.assertIsNone(tide_for_day(EX, date(2027, 6, 1)))
@@ -89,7 +65,6 @@ class Day(unittest.TestCase):
         t = tide_for_day(table, date(2026, 11, 5))
         self.assertEqual(t["am"], "Rising, then falling")
         self.assertIsNone(t["pm"])                               # the table ends at 14:00, before 18:00
-        self.assertIsNone(t["hourly"])                           # so no hourly list either
 
 
 class Enrich(unittest.TestCase):

@@ -3,14 +3,12 @@ import assert from "node:assert/strict";
 import { PLAN_PERIODS, windDirectionDeg, weatherTitle, weatherIcon, planDayView } from "../lib.js";
 
 const day = { iso: "2026-11-24", label: "Tue, 24 Nov", long: "Tuesday, 24 November" };
-const hourly = [{ time: "06:00", height_m: 1.7, state: "rising" }, { time: "07:00", height_m: 2.2, state: "rising" }];
-const extremes = [{ kind: "high", time: "10:01", height_m: 3.1 }];
 const forecastDay = (over = {}) => ({
   date: "2026-11-24", stale: false,
   wind: { knots_low: 5.4, knots_high: 10.8, direction: "NNE" },
   slots: { AM: { text: "Partly Cloudy (Day)", thundery: false }, PM: { text: "Thundery Showers", thundery: true } },
   guidance: {},
-  tide: { am: "Rising", pm: "Falling", hourly, extremes },
+  tide: { am: "Rising", pm: "Falling" },
   ...over,
 });
 const payload = (d = forecastDay(), over = {}) => ({ available: true, horizon_days: 4, note: "NEA outlook", tide_note: "Predicted, not measured.", days: [d], ...over });
@@ -56,9 +54,9 @@ test("a day with a forecast gives two periods, the wind, the tide and the thunde
     [["am", "Partly cloudy", "partly", false, "Rising"], ["pm", "Thundery showers", "thunder", true, "Falling"]]);
   assert.deepEqual(v.wind, { range: "5.4 to 10.8 kn", direction: "NNE", deg: 22.5 });
   assert.equal(v.thunderNotice, "Thundery showers forecast for the afternoon.");
-  assert.deepEqual(v.tide.hourly, hourly);
-  assert.deepEqual(v.tide.extremes, extremes);
+  assert.equal(v.tidePredicted, true);
   assert.equal(v.tideNote, "Predicted, not measured.");
+  assert.equal("tide" in v, false);                                                                 // no hourly tide any more
   assert.equal(v.stale, false);
 });
 
@@ -81,7 +79,7 @@ test("missing or odd data is null, so the card says Not available and never gues
   const noDir = planDayView(payload(forecastDay({ wind: { knots_low: 5, knots_high: 9, direction: "Variable" } })), day).wind;
   assert.equal(noDir.direction, "Variable");
   assert.equal(noDir.deg, null);                                                                   // no arrow, but the text stays
-  assert.equal(planDayView(payload(forecastDay({ tide: undefined })), day).tide, null);
+  assert.equal(planDayView(payload(forecastDay({ tide: undefined })), day).tidePredicted, false);   // no tide word, so no claim about one
   assert.deepEqual(planDayView(payload(forecastDay({ tide: { am: "Rising" } })), day).periods.map((p) => p.tide), ["Rising", null]);
   for (const bad of [5, "", null, {}, ["Rising"]]) assert.equal(planDayView(payload(forecastDay({ tide: { am: bad, pm: bad } })), day).periods[0].tide, null, JSON.stringify(bad));
   const v = planDayView(payload(forecastDay({ slots: { AM: { text: null }, PM: {} } })), day);
@@ -89,23 +87,12 @@ test("missing or odd data is null, so the card says Not available and never gues
   assert.equal(planDayView(payload(forecastDay({ slots: undefined })), day).periods[0].title, null);
 });
 
-test("an hourly list or highs and lows that are not well formed are dropped", () => {
-  const bad = [{ time: "6:00", height_m: 1.7, state: "rising" }];
-  assert.equal(planDayView(payload(forecastDay({ tide: { am: "Rising", pm: "Falling", hourly: bad, extremes } })), day).tide.hourly, null);
-  assert.equal(planDayView(payload(forecastDay({ tide: { hourly: [{ time: "06:00", height_m: "x", state: "rising" }], extremes } })), day).tide.hourly, null);
-  assert.equal(planDayView(payload(forecastDay({ tide: { hourly: [{ time: "06:00", height_m: 1.7, state: "sideways" }], extremes } })), day).tide.hourly, null);
-  assert.equal(planDayView(payload(forecastDay({ tide: { hourly: [], extremes } })), day).tide.hourly, null);
-  assert.deepEqual(planDayView(payload(forecastDay({ tide: { hourly, extremes: [{ kind: "peak", time: "10:01", height_m: 3.1 }] } })), day).tide.extremes, []);
-  assert.deepEqual(planDayView(payload(forecastDay({ tide: { hourly, extremes: "x" } })), day).tide.extremes, []);
+test("the tide is called a prediction only when a tide word is shown, and the note must be text", () => {
+  assert.equal(planDayView(payload(forecastDay({ tide: { am: "Rising" } })), day).tidePredicted, true);
+  assert.equal(planDayView(payload(forecastDay({ tide: { am: "", pm: null } })), day).tidePredicted, false);
+  assert.equal(planDayView(payload(forecastDay({ tide: {} })), day).tidePredicted, false);
   assert.equal(planDayView(payload(forecastDay(), { tide_note: 5 }), day).tideNote, null);
-});
-
-test("a period whose text came from the whole day is marked as a day forecast", () => {
-  const src = (am, pm) => planDayView(payload(forecastDay({ slots: { AM: { text: "Showers", source: am }, PM: { text: "Showers", source: pm } } })), day).periods.map((p) => p.scope);
-  assert.deepEqual(src("daily", "nea_24h"), ["day", null]);
-  assert.deepEqual(src("nea_24h", "daily"), [null, "day"]);
-  assert.deepEqual(src("nea_24h", "nea_24h"), [null, null]);
-  assert.deepEqual(src(undefined, "other"), [null, null]);                 // anything unrecognised is not claimed to be a day forecast
+  assert.equal(planDayView(payload(forecastDay(), { tide_note: undefined }), day).tideNote, null);
 });
 
 test("a day without a forecast, an unavailable forecast, or no day gives a message and no cards", () => {

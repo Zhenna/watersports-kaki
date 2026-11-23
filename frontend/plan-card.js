@@ -1,10 +1,10 @@
 // Draws the Plan ahead card: day chips, the AM and PM cards, the "Create a session" box with its share panel,
-// the hourly footnote, and the interest line. What it shows comes from lib.js (planDayView) and session-share.js.
+// the details, and the interest line. What it shows comes from lib.js (planDayView) and session-share.js.
 //
 // Everything is set with textContent, never innerHTML. It carries its own stylesheet, scoped to #plan.
 // It makes no network requests. All state (open panels, chosen time) is kept by the page and handed in.
 
-import { OG_DESCRIPTION, OG_TITLE, SLOT_CHOICES } from "./session-share.js";
+import { OG_DESCRIPTION, OG_IMAGE_URL, OG_TITLE, SLOT_CHOICES } from "./session-share.js";
 
 export const PLAN_CSS = `
 #plan .wsk-pc-chips{display:flex;gap:8px;margin:12px 0 8px}
@@ -51,9 +51,7 @@ export const PLAN_CSS = `
 #plan .wsk-pc-wa{background:#e7efe3;border-radius:12px;padding:10px}
 #plan .wsk-pc-bub{background:#fff;border-radius:10px;padding:8px;box-shadow:0 1px 1px rgba(0,0,0,.08)}
 #plan .wsk-pc-card{border-radius:8px;overflow:hidden;background:#f1f5fb}
-#plan .wsk-pc-img{height:90px;background:#0d2c5b;color:#fff;padding:10px 14px;display:flex;flex-direction:column;justify-content:center}
-#plan .wsk-pc-img b{font-size:1.1rem;line-height:1.2}
-#plan .wsk-pc-img span{font-size:.8rem;opacity:.9;margin-top:2px}
+#plan .wsk-pc-img{display:block;width:100%;height:auto;aspect-ratio:1200/630;object-fit:cover;background:#e8eef8}
 #plan .wsk-pc-ct{padding:8px 10px}
 #plan .wsk-pc-ct b{display:block;font-size:.88rem;line-height:1.25;color:#0d2c5b}
 #plan .wsk-pc-ct span{display:block;font-size:.78rem;color:#4b5d7c;margin-top:2px}
@@ -63,15 +61,10 @@ export const PLAN_CSS = `
 #plan .wsk-pc-share{flex:2 1 150px;text-align:center;text-decoration:none;font:inherit;font-weight:700;color:#0d2c5b;background:#25d366;border:none;border-radius:12px;padding:11px;cursor:pointer}
 #plan .wsk-pc-copy{flex:1 1 90px;font:inherit;font-weight:600;color:#0d2c5b;background:#fff;border:1.5px solid #0d2c5b;border-radius:12px;padding:11px;cursor:pointer}
 #plan .wsk-pc-fn{font-size:.78rem;color:#5b6b86;margin:8px 0 0}
-#plan .wsk-pc-foot{display:block;margin:10px auto 0;font:inherit;font-size:.82rem;color:#0b5fb8;background:none;border:none;text-decoration:underline;text-underline-offset:3px;cursor:pointer}
-#plan .wsk-pc-hr table{width:100%;border-collapse:collapse;font-size:.85rem;margin-top:6px}
-#plan .wsk-pc-hr th{text-align:left;background:#f1f5fb;color:#5b6b86;font-weight:600;padding:5px 10px}
-#plan .wsk-pc-hr td{padding:4px 10px;border-top:1px solid #eef2f8}
-#plan .wsk-pc-hr tr.pmr td{background:#fffaf2}
 #plan .wsk-pc-interest{margin:14px 0 0;padding-top:12px;border-top:1px solid #e6ecf5;font-size:.88rem}
 #plan .wsk-pc-interest a{color:#0b5fb8;text-decoration:underline;text-underline-offset:3px}
 #plan .wsk-pc-interest span{display:block;margin-top:2px;font-size:.78rem;color:#5b6b86}
-#plan .wsk-pc-chip:focus-visible,#plan .wsk-pc-session:focus-visible,#plan .wsk-pc-foot:focus-visible,#plan .wsk-pc-seg button:focus-visible,#plan .wsk-pc-share:focus-visible,#plan .wsk-pc-copy:focus-visible{outline:3px solid #2a6fdb;outline-offset:2px}
+#plan .wsk-pc-chip:focus-visible,#plan .wsk-pc-session:focus-visible,#plan .wsk-pc-seg button:focus-visible,#plan .wsk-pc-share:focus-visible,#plan .wsk-pc-copy:focus-visible{outline:3px solid #2a6fdb;outline-offset:2px}
 `;
 
 // Small pictures, drawn as SVG. Each is [width/height box, list of shapes].
@@ -207,9 +200,9 @@ function sessionPanel(m, h) {
   const wa = el("div", "wsk-pc-wa");
   const bub = el("div", "wsk-pc-bub");
   const card = el("div", "wsk-pc-card");
-  const img = el("div", "wsk-pc-img");
-  img.appendChild(el("b", null, "WaterSports Kaki"));
-  img.appendChild(el("span", null, "Forecast, wind and tide for watersports in Singapore"));
+  const img = el("img", "wsk-pc-img");
+  img.src = OG_IMAGE_URL;                  // the brand picture you already have, so the preview is the real one
+  img.alt = "WaterSports Kaki";
   const ct = el("div", "wsk-pc-ct");
   ct.appendChild(el("b", null, OG_TITLE));
   ct.appendChild(el("span", null, OG_DESCRIPTION));
@@ -239,39 +232,9 @@ function sessionPanel(m, h) {
   return panel;
 }
 
-function hourlyPanel(view) {
-  const panel = el("div", "wsk-pc-panel wsk-pc-hr");
-  const t = view.tide;
-  const note = `${view.tideNote ? `${view.tideNote} ` : ""}NEA publishes no hourly wind or gust forecast.`;
-  if (t && t.hourly) {
-    if (t.extremes.length) panel.appendChild(el("p", "small", t.extremes.map((e) => `${e.kind === "high" ? "High" : "Low"} ${e.time} (${e.height_m.toFixed(1)} m)`).join(" \u00b7 ")));
-    const table = el("table");
-    const thead = el("thead");
-    const hr = el("tr");
-    hr.appendChild(el("th", null, "Time"));
-    hr.appendChild(el("th", null, "Tide (estimate)"));
-    thead.appendChild(hr);
-    table.appendChild(thead);
-    const tbody = el("tbody");
-    for (const r of t.hourly) {
-      const tr = el("tr", Number(r.time.slice(0, 2)) >= 12 ? "pmr" : "");
-      tr.appendChild(el("td", null, r.time));
-      tr.appendChild(el("td", null, `${r.height_m.toFixed(1)} m, ${r.state}`));
-      tbody.appendChild(tr);
-    }
-    table.appendChild(tbody);
-    panel.appendChild(table);
-    panel.appendChild(el("p", "wsk-pc-fn", `Tide heights are estimates between the predicted highs and lows, above Chart Datum, not water depth. ${note}`));
-  } else {
-    panel.appendChild(el("p", "small", "Hourly tide isn't available for this day."));
-    panel.appendChild(el("p", "wsk-pc-fn", note));
-  }
-  return panel;
-}
-
 // m = { sub, days:[{iso,short,num,label,has}], selected, status, errorText, view, dayLabel, invited, session:{open,slot,message,shareUrl},
-//       hourlyOpen, interest:{href,text,hint}, focus }
-// h = { onDay(i), onSession(), onSlot(key), onShare(), onCopy(), onHourly(), onDetailsOpened() }
+//       interest:{href,text,hint}, focus }
+// h = { onDay(i), onSession(), onSlot(key), onShare(), onCopy(), onDetailsOpened() }
 export function renderPlanCard(host, m, h) {
   injectCss();
   host.replaceChildren();
@@ -318,6 +281,7 @@ export function renderPlanCard(host, m, h) {
       if (v.assessment.pill) a.appendChild(el("span", "pill", v.assessment.pill));
       host.appendChild(a);
     }
+    if (v.tidePredicted) host.appendChild(el("p", "wsk-pc-fn", "Tide is predicted by NEA, not measured."));
     if (v.stale) host.appendChild(el("p", "small", "This forecast is out of date."));
   }
 
@@ -337,24 +301,17 @@ export function renderPlanCard(host, m, h) {
     if (m.session.open) host.appendChild(sessionPanel(m, h));
   }
 
-  if (ok) {
-    const foot = btn("wsk-pc-foot", "hourly", m.hourlyOpen ? "Hide hourly details \u02c4" : "View hourly details \u203a");
-    foot.setAttribute("aria-expanded", String(!!m.hourlyOpen));
-    foot.addEventListener("click", () => h.onHourly());
-    host.appendChild(foot);
-    if (m.hourlyOpen) host.appendChild(hourlyPanel(v));
-
-    if (v.summary || v.small) {
-      const d = document.createElement("details");
-      d.appendChild(el("summary", null, "Details"));
-      const b = el("div", "block");
-      if (v.summary) b.appendChild(el("p", null, v.summary));
-      if (v.small) b.appendChild(el("p", "small", v.small));
-      b.appendChild(el("p", "small", "Lightning is checked live on the day. See Right now."));
-      d.appendChild(b);
-      if (typeof h.onDetailsOpened === "function" && typeof d.addEventListener === "function") d.addEventListener("toggle", () => { if (d.open) h.onDetailsOpened(); });
-      host.appendChild(d);
-    }
+  if (ok && (v.summary || v.small || v.tideNote)) {
+    const d = document.createElement("details");
+    d.appendChild(el("summary", null, "Details"));
+    const b = el("div", "block");
+    if (v.summary) b.appendChild(el("p", null, v.summary));
+    if (v.small) b.appendChild(el("p", "small", v.small));
+    if (v.tideNote) b.appendChild(el("p", "small", v.tideNote));
+    b.appendChild(el("p", "small", "Lightning is checked live on the day. See Right now."));
+    d.appendChild(b);
+    if (typeof h.onDetailsOpened === "function" && typeof d.addEventListener === "function") d.addEventListener("toggle", () => { if (d.open) h.onDetailsOpened(); });
+    host.appendChild(d);
   }
 
   const interest = el("p", "wsk-pc-interest");

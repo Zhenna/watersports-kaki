@@ -488,11 +488,6 @@ export function weatherIcon(text) {
   return "none";
 }
 
-const validHourly = (rows) => Array.isArray(rows) && rows.length > 0 && rows.every((r) =>
-  r && typeof r.time === "string" && /^\d{2}:00$/.test(r.time) && Number.isFinite(r.height_m) && (r.state === "rising" || r.state === "falling"));
-const validExtremes = (xs) => Array.isArray(xs) && xs.every((e) =>
-  e && (e.kind === "high" || e.kind === "low") && typeof e.time === "string" && /^\d{2}:\d{2}$/.test(e.time) && Number.isFinite(e.height_m));
-
 // Everything the AM / PM cards show for one day, from the /forecast response. Fails closed: whatever is missing is null,
 // and the card says "Not available" for it. It builds on buildForecastView, so the thunder note and the guidance wording stay the same.
 export function planDayView(payload, day) {
@@ -517,7 +512,6 @@ export function planDayView(payload, day) {
       tide: typeof f.tide?.[p.key] === "string" && f.tide[p.key] ? f.tide[p.key] : null,
     };
   });
-  const t = f.tide && typeof f.tide === "object" ? f.tide : null;
   return {
     state: "ok",
     thunderNotice: base.thunderNotice,
@@ -527,7 +521,7 @@ export function planDayView(payload, day) {
     summary: base.summary,
     small: base.small,
     stale: base.stale,
-    tide: t ? { hourly: validHourly(t.hourly) ? t.hourly : null, extremes: validExtremes(t.extremes) ? t.extremes : [] } : null,
+    tidePredicted: periods.some((p) => p.tide),          // true when a tide word is shown, so the card can say it is a prediction
     tideNote: typeof payload.tide_note === "string" ? payload.tide_note : null,
   };
 }

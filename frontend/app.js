@@ -25,7 +25,7 @@ function el(tag, cls, text) {
 
 const state = {
   activities: [], spots: [], activity: null, spot: null, level: "beginner", tab: "now",
-  plan: { days: [], dayIdx: 0, invite: null, slot: "am", sessionOpen: false, hourlyOpen: false, focus: null },
+  plan: { days: [], dayIdx: 0, invite: null, slot: "am", sessionOpen: false, focus: null },
   forecast: { key: null, status: "idle", payload: null },
   windTab: null,   // which wind sub-tab is open: null, 0 (summary) or 1 (sources and limits)
 };
@@ -294,7 +294,6 @@ function currentInvite(view) {
 
 function resetPlanPanels() {
   state.plan.sessionOpen = false;
-  state.plan.hourlyOpen = false;
 }
 
 async function copyText(text) {
@@ -326,7 +325,6 @@ function renderPlan() {
     dayLabel: day ? day.label : "",
     invited: state.plan.invite,
     session: invite ? { open: state.plan.sessionOpen, slot: state.plan.slot, message: invite.message, shareUrl: invite.shareUrl } : null,
-    hourlyOpen: state.plan.hourlyOpen,
     interest: {
       href: CONFIG.INTEREST_URL,
       text: "Prefer to be matched with others? Register your interest \u203a",
@@ -348,12 +346,6 @@ function renderPlan() {
       const ok = inv ? await copyText(inv.message) : false;
       if (ok) track("session_copy_clicked", { slot: state.plan.slot });
       return ok;
-    },
-    onHourly: () => {
-      state.plan.hourlyOpen = !state.plan.hourlyOpen;
-      if (state.plan.hourlyOpen) track("hourly_details_opened");
-      state.plan.focus = "hourly";
-      renderPlan();
     },
     onDetailsOpened: () => track("conditions_details_opened", { detail_type: "forecast" }),
     onInterest: () => track("plan_interest_clicked"),

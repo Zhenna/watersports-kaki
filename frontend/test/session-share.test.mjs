@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import {
   SITE_APP_URL, OG_IMAGE_URL, OG_TITLE, OG_DESCRIPTION, SLOT_CHOICES,
   inviteFromQuery, inviteLink, inviteMessage, waShareUrl,
@@ -95,5 +95,20 @@ test("the preview card text, the image address and the page's tags stay in step"
   assert.equal(tag("og:image"), OG_IMAGE_URL);
   assert.equal(tag("og:url"), SITE_APP_URL);
   assert.ok(OG_TITLE.length > 0 && OG_DESCRIPTION.length > 0 && OG_DESCRIPTION.length <= 200);
-  assert.ok(OG_IMAGE_URL.startsWith("https://") && OG_IMAGE_URL.endsWith(".png"));
+  assert.ok(OG_IMAGE_URL.startsWith("https://") && /\.(jpg|png)$/.test(OG_IMAGE_URL));
+});
+
+test("the preview uses only your own words and a picture made from the page's own hero: its heading and sub line, and the light picture", () => {
+  const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
+  const h1 = /<h1>(.*?)<\/h1>/s.exec(html)[1].replace(/<br>/g, " ").replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
+  const lede = /<p class="lede">(.*?)<\/p>/s.exec(html)[1].replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
+  assert.equal(OG_TITLE, h1);                                         // "Learn watersports. Find your kakis."
+  assert.equal(OG_DESCRIPTION, lede);                                 // "Know when to go, find people to go with, ..."
+  assert.equal(OG_IMAGE_URL, "https://www.watersportskaki.sg/app/og-app-light.png");
+});
+
+test("the first picture I made, og-image.png, is gone and nothing points at it", () => {
+  const here = (f) => readFileSync(new URL(`../${f}`, import.meta.url), "utf8");
+  for (const f of ["index.html", "session-share.js", "plan-card.js"]) assert.doesNotMatch(here(f), /og-image\.png/, f);
+  assert.equal(existsSync(new URL("../og-image.png", import.meta.url)), false);
 });
