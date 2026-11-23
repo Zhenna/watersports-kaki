@@ -210,3 +210,14 @@ test("the card text carries no advice, no conditions words and no operator names
   assert.doesNotMatch(t, /PAssion|WaVe|Aloha|Constant Wind|operator|partner/i);
   assert.doesNotMatch(t, /\bsafe\b|recommend|ideal|dangerous|\bwind\b|\bknots?\b|km\/h|lightning|strikes/i);
 });
+
+test("opening the requirements row tells the page, and closing it does not", () => {
+  const opened = [];
+  const r = run({}, { onDetailsOpened: () => opened.push("requirements") });
+  const d = byTag(r.host, "details")[0];
+  d.open = false; (d.listeners.toggle || []).forEach((f) => f());
+  assert.deepEqual(opened, []);
+  d.open = true; (d.listeners.toggle || []).forEach((f) => f());
+  assert.deepEqual(opened, ["requirements"]);
+  assert.doesNotThrow(() => run({}, { onDetailsOpened: undefined }));     // the handler is optional
+});

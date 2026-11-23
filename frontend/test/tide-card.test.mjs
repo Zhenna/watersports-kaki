@@ -411,3 +411,40 @@ test("the card still works when the API sends no height estimate, and refuses a 
   assert.equal(tideView(tide({ height_estimate_m: "2.5" }), NOW), null);
   assert.equal(tideView(tide({ height_estimate_m: NaN }), NOW), null);
 });
+
+test("opening Details tells the page once per opening, and nothing breaks without a listener", () => {
+  const saved = globalThis.document;
+  const doc = fakeDoc();
+  const base = doc.createElement;
+  doc.createElement = (tag) => {                      // a page whose elements can listen, like a browser's
+    const n = base(tag);
+    n.listeners = {};
+    n.addEventListener = (type, fn) => { (n.listeners[type] ||= []).push(fn); };
+    return n;
+  };
+  globalThis.document = doc;
+  try {
+    const opened = [];
+    const host = globalThis.document.createElement("section");
+    createTideCard(host, { onDetailsOpened: () => opened.push("tide") }).update(tide(), null, "2026-11-16T12:30:00+08:00");
+    const d = find(host, "details")[0];
+    d.open = false; (d.listeners.toggle || []).forEach((f) => f());
+    assert.deepEqual(opened, []);                                       // closing is not counted
+    d.open = true; (d.listeners.toggle || []).forEach((f) => f());
+    assert.deepEqual(opened, ["tide"]);
+    const plain = globalThis.document.createElement("section");
+    assert.doesNotThrow(() => createTideCard(plain).update(tide(), null, "2026-11-16T12:30:00+08:00"));
+    assert.doesNotThrow(() => createTideCard(plain, { onDetailsOpened: "not a function" }).update(tide(), null, "2026-11-16T12:30:00+08:00"));
+  } finally { globalThis.document = saved; }
+});
+
+test("a page whose elements cannot listen still shows the tide card", () => {
+  const saved = globalThis.document;
+  globalThis.document = fakeDoc();                    // these elements have no addEventListener
+  try {
+    const host = globalThis.document.createElement("section");
+    createTideCard(host, { onDetailsOpened: () => {} }).update(tide(), null, "2026-11-16T12:30:00+08:00");
+    assert.equal(host.hidden, false);
+    assert.match(textOf(host), /Rising tide/);
+  } finally { globalThis.document = saved; }
+});

@@ -198,7 +198,7 @@ function htmlEl(tag, cls, text) {
   return e;
 }
 
-function buildCard(host) {
+function buildCard(host, opts) {
   const head = document.head;
   if (head && !document.getElementById("wsk-td-css")) {
     const st = document.createElement("style");
@@ -309,6 +309,9 @@ function buildCard(host) {
     more.appendChild(htmlEl("p", "small td-row", "This card shows tide height only. Current direction and strength aren't shown."));
     const src = `Source: ${view.source}.` + (view.fetchedTime ? ` Table read at ${view.fetchedTime}.` : "");
     more.appendChild(htmlEl("p", "small td-row", `${view.note} ${src}`.trim()));
+    if (opts && typeof opts.onDetailsOpened === "function" && typeof more.addEventListener === "function") {
+      more.addEventListener("toggle", () => { if (more.open) opts.onDetailsOpened(); });
+    }
     body.appendChild(more);
   }
 
@@ -326,7 +329,7 @@ function buildCard(host) {
 }
 
 // Builds on first use, and can never break the rest of the page.
-export function createTideCard(host) {
+export function createTideCard(host, opts = {}) {
   let inner = null, off = false;
   const disable = (err) => {
     off = true;
@@ -336,7 +339,7 @@ export function createTideCard(host) {
   const get = () => {
     if (inner || off) return inner;
     if (!host || typeof document === "undefined" || typeof document.createElementNS !== "function") { off = true; return null; }
-    try { inner = buildCard(host); } catch (err) { disable(err); }
+    try { inner = buildCard(host, opts); } catch (err) { disable(err); }
     return inner;
   };
   return {

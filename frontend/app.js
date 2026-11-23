@@ -11,7 +11,7 @@ import { renderEntryCard } from "./entry-card.js";
 
 const $ = (id) => document.getElementById(id);
 const windDiagram = createWindDiagram($("wind-diagram-panel"));
-const tideCard = createTideCard($("tide-panel"));
+const tideCard = createTideCard($("tide-panel"), { onDetailsOpened: () => track("conditions_details_opened", { detail_type: "tide" }) });
 
 // All API text goes in through textContent, never innerHTML.
 function el(tag, cls, text) {
@@ -31,6 +31,7 @@ let lastLoad = 0;
 let inflight = null;
 let entryKey = null;   // which selection the "never tried" card was last shown for
 let whenChoice = null; // weekend, weekday or flexible, for the card in view
+let pendingView = true; // a conditions view is counted once per page load or selection change, never for a refresh
 
 // ---------- small helpers ----------
 async function getJson(url, timeoutMs = 25000) {
@@ -206,6 +207,7 @@ function fillWindTabs(wrap, tabs) {
     b.setAttribute("role", "tab");
     b.setAttribute("aria-selected", String(on));
     b.addEventListener("click", () => {
+      if (!on) track("conditions_details_opened", { detail_type: i === 0 ? "conditions_summary" : "sources_limits" });
       state.windTab = on ? null : i;
       fillWindTabs(wrap, tabs);
     });
@@ -244,6 +246,7 @@ function renderLightningPanel(v) {
   const b = el("div", "block");
   for (const line of c.detail) b.appendChild(el("p", "small", line));
   d.appendChild(b);
+  d.addEventListener("toggle", () => { if (d.open) track("conditions_details_opened", { detail_type: "lightning" }); });
   s.appendChild(d);
 }
 
@@ -306,6 +309,7 @@ function renderForecastBlock() {
   if (v.small) b.appendChild(el("p", "small", v.small));
   b.appendChild(el("p", "small", "Lightning is checked live on the day. See Right now."));
   d.appendChild(b);
+  d.addEventListener("toggle", () => { if (d.open) track("conditions_details_opened", { detail_type: "forecast" }); });
   wrap.appendChild(d);
   return wrap;
 }
@@ -426,6 +430,7 @@ function renderEntry() {
     }),
     onPick: (slug) => { whenChoice = slug; },
     onRegister: () => track("interest_card_clicked", { when: whenChoice || "none" }),
+    onDetailsOpened: () => track("conditions_details_opened", { detail_type: "requirements" }),
     onSwitch: () => {
       state.level = STARTER_LEVEL;
       $("level").value = STARTER_LEVEL;
@@ -493,6 +498,10 @@ async function loadConditions() {
     const obs = payload.observations || {};
     tideCard.update("tide" in obs ? obs.tide : undefined, obs.tide_message, payload.generated_at);
     lastLoad = Date.now();
+    if (pendingView && state.tab === "now") {   // one count per selection, only when they are looking at Right now
+      pendingView = false;
+      track("conditions_view", { view_mode: "now" });
+    }
   } catch (e) {
     if (inflight !== ctrl) return;  // replaced by a newer request
     clearNow();
@@ -521,6 +530,7 @@ async function loadSpots(wantedSpot) {
 }
 
 function refreshAll() {
+  pendingView = true;
   applyLevelMode();
   updateUrl();
   state.forecast = { key: null, status: "idle", payload: null };
@@ -568,13 +578,18 @@ function setupControls() {
   });
   $("level").addEventListener("change", () => {
     state.level = $("level").value;
+    track("skill_changed");
     refreshAll();
   });
-  $("refresh").addEventListener("click", loadConditions);
+  $("refresh").addEventListener("click", () => { track("refresh_clicked"); loadConditions(); });
+  const openPlan = () => { if (state.tab !== "plan") track("plan_ahead_opened"); setTab("plan"); };
   $("tab-now").addEventListener("click", () => setTab("now"));
-  $("tab-plan").addEventListener("click", () => setTab("plan"));
-  $("go-plan").addEventListener("click", () => setTab("plan"));
+  $("tab-plan").addEventListener("click", openPlan);
+  $("go-plan").addEventListener("click", openPlan);
   $("go-now").addEventListener("click", () => setTab("now"));
+  $("more-sports").addEventListener("click", () => track("next_sport_link_clicked"));
+  const home = $("home-link");
+  if (home) home.addEventListener("click", () => track("home_link_clicked", { source_page: "app", placement: "nav" }));
 }
 
 setupControls();

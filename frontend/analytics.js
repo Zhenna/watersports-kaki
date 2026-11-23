@@ -13,7 +13,7 @@
 // Paste your GA4 Measurement ID here: Analytics, Admin, Data streams, your web stream, top right (G-...).
 // It is public (it appears in the page source), so it is fine to commit. While this is empty, or still the
 // placeholder, nothing loads and no notice is shown.
-export const ANALYTICS_ID = "G-ZYYFMB2K0B";
+export const ANALYTICS_ID = "";
 export const PRIVACY_URL = "/privacy.html";
 const HOST = /(^|\.)watersportskaki\.sg$/i;
 const KEY = "wsk_consent_analytics";
@@ -31,7 +31,36 @@ export const EVENTS = {
   early_access_form_clicked: ["source_page", "placement"],
   interest_card_viewed: ["sport", "location", "skill_level"],
   interest_card_clicked: ["sport", "location", "skill_level", "when"],
+  refresh_clicked: ["sport", "location"],
+  next_sport_link_clicked: ["sport", "location"],
+  home_link_clicked: ["source_page", "placement"],
+  feedback_link_clicked: ["source_page", "placement"],
+  partners_link_clicked: ["source_page", "placement"],
+  instagram_link_clicked: ["source_page", "placement"],
 };
+
+// Which page a click happened on, as a plain word. Anything unexpected is "other".
+export function sourcePage(pathname) {
+  if (typeof pathname !== "string") return "other";
+  if (pathname === "/" || pathname === "/index.html") return "home";
+  if (pathname === "/operators.html") return "operators";
+  if (pathname === "/privacy.html") return "privacy";
+  if (pathname === "/app" || pathname.startsWith("/app/")) return "app";
+  return "other";
+}
+
+// Where on the page a link sits: an explicit data-wsk-placement, else the nearest footer or nav or header, else "page".
+export function placementFor(target) {
+  try {
+    const explicit = target.getAttribute && cleanValue(target.getAttribute("data-wsk-placement"));
+    if (explicit) return explicit;
+    if (target.closest) {
+      if (target.closest("footer")) return "footer";
+      if (target.closest("nav") || target.closest("header")) return "nav";
+    }
+  } catch (e) { /* fall through */ }
+  return "page";
+}
 
 // "ga4" for a G- Measurement ID, "gtm" for a Tag Manager container, null for anything else (including the placeholder).
 export function idKind(id) {
@@ -194,8 +223,14 @@ export function createAnalytics(env) {
     } catch (e) { /* no storage: carry on */ }
     if (win.navigator && win.navigator.globalPrivacyControl === true) return (status = "off");
     doc.addEventListener("click", (e) => {
-      const t = e.target && e.target.closest ? e.target.closest("[data-wsk-consent-settings]") : null;
-      if (t) { if (e.preventDefault) e.preventDefault(); showBar(); }
+      const target = e.target;
+      if (!target || !target.closest) return;
+      if (target.closest("[data-wsk-consent-settings]")) { if (e.preventDefault) e.preventDefault(); showBar(); return; }
+      // A link marked data-wsk-event="whatsapp_join_clicked" is counted when it is pressed (only after Accept).
+      const tagged = target.closest("[data-wsk-event]");
+      if (tagged) {
+        track(tagged.getAttribute("data-wsk-event"), { source_page: sourcePage(loc.pathname), placement: placementFor(tagged) });
+      }
     });
     const choice = readConsent(storage, now()) || memory;
     if (choice === "granted") { status = "granted"; load(); }

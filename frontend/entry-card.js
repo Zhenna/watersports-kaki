@@ -149,6 +149,7 @@ export function renderEntryCard(host, m, h) {
     for (const r of c.requirements) ul.appendChild(el("li", null, r));
     d.appendChild(ul);
     if (c.provisionalNote) d.appendChild(el("p", "wsk-ec-small", c.provisionalNote));
+    if (typeof h.onDetailsOpened === "function" && typeof d.addEventListener === "function") d.addEventListener("toggle", () => { if (d.open) h.onDetailsOpened(); });
     host.appendChild(d);
   }
 

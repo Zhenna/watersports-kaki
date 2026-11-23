@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createAnalytics, isTrackedHost, cleanValue, cleanParams, readConsent, idKind, EVENTS, ANALYTICS_ID } from "../analytics.js";
+import { createAnalytics, isTrackedHost, cleanValue, cleanParams, readConsent, idKind, sourcePage, placementFor, EVENTS, ANALYTICS_ID } from "../analytics.js";
 
 const GA = "G-ABCDE12345";
 
@@ -331,4 +331,76 @@ test("the notice and its buttons use only plain text, never markup", () => {
   const all = find(bar(e), () => true);
   assert.ok(all.every((n) => !("innerHTML" in n)));
   assert.equal(find(e.head, (n) => n.tag === "style").length, 1);
+});
+
+// ---- what people click: pages, placement, and links marked with data-wsk-event
+test("the page a click happened on is a plain word", () => {
+  assert.equal(sourcePage("/"), "home");
+  assert.equal(sourcePage("/index.html"), "home");
+  assert.equal(sourcePage("/operators.html"), "operators");
+  assert.equal(sourcePage("/privacy.html"), "privacy");
+  assert.equal(sourcePage("/app/"), "app");
+  assert.equal(sourcePage("/app"), "app");
+  assert.equal(sourcePage("/app/index.html"), "app");
+  for (const odd of ["/secret/path", "/application", "", undefined, null, 5]) assert.equal(sourcePage(odd), "other", String(odd));
+});
+
+test("placement comes from the link, else from the footer, nav or header it sits in, else page", () => {
+  const link = (attrs, ancestors = []) => ({ getAttribute: (k) => attrs[k] ?? null, closest: (sel) => (ancestors.includes(sel) ? {} : null) });
+  assert.equal(placementFor(link({ "data-wsk-placement": "hero" })), "hero");
+  assert.equal(placementFor(link({}, ["footer"])), "footer");
+  assert.equal(placementFor(link({}, ["nav"])), "nav");
+  assert.equal(placementFor(link({}, ["header"])), "nav");
+  assert.equal(placementFor(link({})), "page");
+  assert.equal(placementFor(link({ "data-wsk-placement": "<script>" }, ["footer"])), "footer");   // a bad value falls back, never sent
+  assert.equal(placementFor({}), "page");
+  assert.equal(placementFor(null), "page");
+});
+
+test("the new click events carry only plain, listed fields", () => {
+  assert.deepEqual(cleanParams("refresh_clicked", { sport: "windsurf", location: "east-coast", email: "a@b.sg" }), { sport: "windsurf", location: "east-coast" });
+  assert.deepEqual(cleanParams("next_sport_link_clicked", { sport: "windsurf" }), { sport: "windsurf" });
+  assert.deepEqual(cleanParams("home_link_clicked", { source_page: "app", placement: "nav", sport: "windsurf" }), { source_page: "app", placement: "nav" });
+  assert.deepEqual(cleanParams("conditions_details_opened", { detail_type: "sources_limits", sport: "windsurf" }), { detail_type: "sources_limits", sport: "windsurf" });
+});
+
+test("the landing link events carry only the page and the place", () => {
+  for (const name of ["feedback_link_clicked", "partners_link_clicked", "instagram_link_clicked", "whatsapp_join_clicked", "conditions_cta_clicked", "early_access_form_clicked"]) {
+    assert.deepEqual(cleanParams(name, { source_page: "home", placement: "footer", href: "https://x.sg/?a=b", sport: "windsurf" }), { source_page: "home", placement: "footer" }, name);
+  }
+});
+
+test("a tagged link is counted when pressed, after Accept, with its page and place", () => {
+  const e = env();
+  e.a.init();
+  click(e, "Accept");
+  const tagged = { getAttribute: (k) => (k === "data-wsk-event" ? "whatsapp_join_clicked" : null), closest: (sel) => (sel === "[data-wsk-event]" ? tagged : sel === "footer" ? {} : null) };
+  e.win.location.pathname = "/operators.html";
+  e.doc.listeners.click.forEach((fn) => fn({ target: tagged }));
+  const sent = e.win.dataLayer[e.win.dataLayer.length - 1];
+  assert.deepEqual([...sent], ["event", "whatsapp_join_clicked", { source_page: "operators", placement: "footer" }]);
+});
+
+test("a tagged link is not counted before Accept, after Decline, or with an unlisted event name", () => {
+  const tagged = (name) => ({ getAttribute: () => name, closest: (sel) => (sel === "[data-wsk-event]" ? tagged(name) : null) });
+  const press = (e, name) => e.doc.listeners.click.forEach((fn) => fn({ target: tagged(name) }));
+  const before = env(); before.a.init(); press(before, "whatsapp_join_clicked");
+  assert.equal(before.win.dataLayer, undefined);
+  const declined = env(); declined.a.init(); click(declined, "Decline"); press(declined, "whatsapp_join_clicked");
+  assert.equal(declined.win.dataLayer, undefined);
+  const accepted = env(); accepted.a.init(); click(accepted, "Accept");
+  const n = accepted.win.dataLayer.length;
+  press(accepted, "purchase"); press(accepted, "__proto__"); press(accepted, null);
+  assert.equal(accepted.win.dataLayer.length, n);
+});
+
+test("clicks on things that are not tagged do nothing, and the consent link still works", () => {
+  const e = env();
+  e.a.init();
+  click(e, "Accept");
+  const n = e.win.dataLayer.length;
+  e.doc.listeners.click.forEach((fn) => fn({ target: { closest: () => null } }));
+  e.doc.listeners.click.forEach((fn) => fn({ target: null }));
+  e.doc.listeners.click.forEach((fn) => fn({}));
+  assert.equal(e.win.dataLayer.length, n);
 });
