@@ -93,7 +93,7 @@ No second Vercel project and no extra DNS record. The app's files are copied int
 
 ```bash
 cd ~/my_code/watersports-kaki
-bash scripts/sync_app.sh --publish        # copies 13 files into ~/my_code/wsk-landing/app/ (--publish because main goes live)
+bash scripts/sync_app.sh --publish        # copies 16 files into ~/my_code/wsk-landing/app/ (--publish because main goes live)
 cd ~/my_code/wsk-landing
 git status --short                        # the new app/ folder and the updated index.html
 git add app index.html

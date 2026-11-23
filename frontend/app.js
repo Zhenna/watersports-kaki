@@ -1,13 +1,15 @@
 import { CONFIG } from "./config.js";
 import {
-  LEVELS, LEVEL_LABELS, SLOTS, selectionFromQuery, pickOption, catalogActivitiesUrl,
-  catalogSpotsUrl, conditionsUrl, forecastUrl, buildView, buildForecastView, forecastDates, errorMessage,
-  FAIL_CLOSED_NOTE, upcomingDays, planSummary, formHint,
+  LEVELS, LEVEL_LABELS, selectionFromQuery, pickOption, catalogActivitiesUrl,
+  catalogSpotsUrl, conditionsUrl, forecastUrl, buildView, planDayView, forecastDates, errorMessage,
+  FAIL_CLOSED_NOTE, upcomingDays, formHint,
 } from "./lib.js";
 import { createWindDiagram } from "./wind-diagram.js";
 import { createTideCard } from "./tide-card.js";
 import { NEVER_TRIED, STARTER_LEVEL, WHEN_OPTIONS, panesFor, entryCard, learnerForm, interestLink, countView } from "./entry-requirements.js";
 import { renderEntryCard } from "./entry-card.js";
+import { renderPlanCard } from "./plan-card.js";
+import { inviteFromQuery, inviteLink, inviteMessage, waShareUrl } from "./session-share.js";
 
 const $ = (id) => document.getElementById(id);
 const windDiagram = createWindDiagram($("wind-diagram-panel"));
@@ -23,7 +25,7 @@ function el(tag, cls, text) {
 
 const state = {
   activities: [], spots: [], activity: null, spot: null, level: "beginner", tab: "now",
-  plan: { days: [], dayIdx: 0, slots: ["AM"] },
+  plan: { days: [], dayIdx: 0, invite: null, slot: "am", sessionOpen: false, hourlyOpen: false, focus: null },
   forecast: { key: null, status: "idle", payload: null },
   windTab: null,   // which wind sub-tab is open: null, 0 (summary) or 1 (sources and limits)
 };
@@ -272,108 +274,90 @@ function renderNow(v, ctx) {
 }
 
 // ---------- plan ahead ----------
-function renderForecastBlock() {
-  const wrap = el("div", "forecast");
-  const f = state.forecast;
-  const day = state.plan.days[state.plan.dayIdx];
-  if (f.status === "idle" || f.status === "loading") {
-    wrap.appendChild(el("p", "muted", "Loading forecast..."));
-    return wrap;
-  }
-  if (f.status === "error") {
-    wrap.appendChild(el("p", "muted", `Forecast unavailable right now. ${FAIL_CLOSED_NOTE}`));
-    return wrap;
-  }
-  const v = buildForecastView(f.payload, day, state.plan.slots);
-  if (v.state === "none") {
-    wrap.appendChild(el("p", "muted", v.message));
-    return wrap;
-  }
-  wrap.appendChild(el("p", "label", `Forecast for ${day.label}`));
-  if (v.thunderNotice) {
-    const n = el("div", "notice");
-    n.appendChild(el("p", "strong", v.thunderNotice));
-    n.appendChild(el("p", "small", "Check updated forecasts and official warnings on the day."));
-    wrap.appendChild(n);
-  }
-  for (const line of v.weatherLines) wrap.appendChild(el("p", null, line));
-  if (v.headline) wrap.appendChild(el("p", "headline", v.headline));
-  wrap.appendChild(el("span", "pill", v.pill));
-  if (v.windLine) wrap.appendChild(el("p", "windline", v.windLine));
-  if (v.summary) wrap.appendChild(el("p", "summary", v.summary));
-  if (v.stale) wrap.appendChild(el("p", "small", "This forecast is out of date."));
-
-  const d = el("details");
-  d.appendChild(el("summary", null, "Details"));
-  const b = el("div", "block");
-  if (v.small) b.appendChild(el("p", "small", v.small));
-  b.appendChild(el("p", "small", "Lightning is checked live on the day. See Right now."));
-  d.appendChild(b);
-  d.addEventListener("toggle", () => { if (d.open) track("conditions_details_opened", { detail_type: "forecast" }); });
-  wrap.appendChild(d);
-  return wrap;
+function planSub() {
+  return state.activity && state.spot ? `${state.activity.name} \u00b7 ${state.spot.name} \u00b7 ${LEVEL_LABELS[state.level] ?? state.level}` : "";
 }
 
-function toggleSlot(key) {
-  const on = state.plan.slots.includes(key);
-  if (on && state.plan.slots.length === 1) return;   // keep at least one selected
-  state.plan.slots = SLOTS.map((x) => x.key).filter((k) => (k === key ? !on : state.plan.slots.includes(k)));
-  renderPlan();
+// The invitation for the chosen day and time. Null until the sport and place are known.
+function currentInvite(view) {
+  const day = state.plan.days[state.plan.dayIdx];
+  if (!day || !state.activity || !state.spot) return null;
+  const slot = state.plan.slot;
+  const link = inviteLink({ activity: state.activity.slug, spot: state.spot.slug, day: day.iso, slot });
+  const thundery = view && view.state === "ok" ? Object.fromEntries(view.periods.map((p) => [p.key, p.thundery])) : {};
+  const message = inviteMessage({
+    sportName: state.activity.name, sportSlug: state.activity.slug, spotName: state.spot.name,
+    dayShort: day.label.replace(",", ""), slot, thundery, link,
+  });
+  return message ? { message, shareUrl: waShareUrl(message) } : null;
+}
+
+function resetPlanPanels() {
+  state.plan.sessionOpen = false;
+  state.plan.hourlyOpen = false;
+}
+
+async function copyText(text) {
+  try {
+    if (typeof navigator === "undefined" || !navigator.clipboard || typeof navigator.clipboard.writeText !== "function") return false;
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch (e) {
+    return false;
+  }
 }
 
 function renderPlan() {
   const s = $("plan");
-  s.replaceChildren();
-  s.appendChild(el("h2", null, "Find your next Water Day"));
-  const where = state.activity && state.spot ? `${state.activity.name} \u00b7 ${state.spot.name}` : null;
-  if (where) s.appendChild(el("p", "plan-sub", `${where} \u00b7 ${LEVEL_LABELS[state.level] ?? state.level}`));
-  s.appendChild(el("p", "ask", "When would you like to go?"));
-
-  const withForecast = state.forecast.status === "ok" ? forecastDates(state.forecast.payload) : new Set();
-  const chips = el("div", "chips");
-  state.plan.days.forEach((d, i) => {
-    const has = withForecast.has(d.iso);
-    const b = el("button", `chip${i === state.plan.dayIdx ? " on" : ""}${has ? " has-forecast" : ""}`);
-    b.type = "button";
-    b.setAttribute("aria-label", has ? `${d.label}, forecast available` : d.label);
-    b.setAttribute("aria-pressed", String(i === state.plan.dayIdx));
-    b.appendChild(el("span", "chip-dow", d.short));
-    b.appendChild(el("span", "chip-num", String(d.num)));
-    b.addEventListener("click", () => { state.plan.dayIdx = i; renderPlan(); });
-    chips.appendChild(b);
-  });
-  s.appendChild(chips);
-  if (withForecast.size) s.appendChild(el("p", "small legend", "A dot marks days with a forecast."));
-
-  const slots = el("div", "slots");
-  for (const sl of SLOTS) {
-    const on = state.plan.slots.includes(sl.key);
-    const b = el("button", on ? "slot on" : "slot");
-    b.type = "button";
-    b.setAttribute("aria-pressed", String(on));
-    b.appendChild(el("span", "slot-name", sl.key));
-    b.appendChild(el("span", "slot-sub", sl.sub));
-    b.addEventListener("click", () => toggleSlot(sl.key));
-    slots.appendChild(b);
-  }
-  s.appendChild(slots);
-  s.appendChild(el("p", "small", "Pick AM, PM or both."));
-
-  s.appendChild(renderForecastBlock());
-
   const day = state.plan.days[state.plan.dayIdx];
-  const session = el("div", "session");
-  session.appendChild(el("p", "label", "Your selection"));
-  session.appendChild(el("p", "session-title", planSummary(day, state.plan.slots)));
-  session.appendChild(el("p", "small", formHint(day, state.plan.slots)));
-  s.appendChild(session);
-
-  const link = el("a", "cta wide", "I'm interested \u2192");
-  link.href = CONFIG.INTEREST_URL;
-  link.target = "_blank";
-  link.rel = "noopener";
-  s.appendChild(link);
-  s.appendChild(el("p", "small centered", "Interest only. Nothing is booked. We'll email you when others with similar plans sign up."));
+  const f = state.forecast;
+  const withForecast = f.status === "ok" ? forecastDates(f.payload) : new Set();
+  const view = f.status === "ok" ? planDayView(f.payload, day) : null;
+  const invite = currentInvite(view);
+  const focus = state.plan.focus;
+  state.plan.focus = null;
+  renderPlanCard(s, {
+    sub: planSub(),
+    days: state.plan.days.map((d) => ({ iso: d.iso, short: d.short, num: d.num, label: d.label, has: withForecast.has(d.iso) })),
+    selected: state.plan.dayIdx,
+    status: f.status,
+    errorText: `Forecast unavailable right now. ${FAIL_CLOSED_NOTE}`,
+    view,
+    dayLabel: day ? day.label : "",
+    invited: state.plan.invite,
+    session: invite ? { open: state.plan.sessionOpen, slot: state.plan.slot, message: invite.message, shareUrl: invite.shareUrl } : null,
+    hourlyOpen: state.plan.hourlyOpen,
+    interest: {
+      href: CONFIG.INTEREST_URL,
+      text: "Prefer to be matched with others? Register your interest \u203a",
+      hint: formHint(day, ["AM", "PM"]),
+    },
+    focus,
+  }, {
+    onDay: (i) => { state.plan.dayIdx = i; state.plan.invite = null; resetPlanPanels(); state.plan.focus = `day-${i}`; renderPlan(); },
+    onSession: () => {
+      state.plan.sessionOpen = !state.plan.sessionOpen;
+      if (state.plan.sessionOpen) track("session_create_clicked");
+      state.plan.focus = "session";
+      renderPlan();
+    },
+    onSlot: (key) => { state.plan.slot = key; state.plan.focus = `slot-${key}`; renderPlan(); },
+    onShare: () => track("session_share_clicked", { slot: state.plan.slot }),
+    onCopy: async () => {
+      const inv = currentInvite(view);
+      const ok = inv ? await copyText(inv.message) : false;
+      if (ok) track("session_copy_clicked", { slot: state.plan.slot });
+      return ok;
+    },
+    onHourly: () => {
+      state.plan.hourlyOpen = !state.plan.hourlyOpen;
+      if (state.plan.hourlyOpen) track("hourly_details_opened");
+      state.plan.focus = "hourly";
+      renderPlan();
+    },
+    onDetailsOpened: () => track("conditions_details_opened", { detail_type: "forecast" }),
+    onInterest: () => track("plan_interest_clicked"),
+  });
 }
 
 function forecastKey() {
@@ -543,6 +527,13 @@ async function init() {
   const wanted = selectionFromQuery(location.search);
   state.level = wanted.level;
   state.plan.days = upcomingDays();
+  const invited = inviteFromQuery(location.search);       // a shared link names a day and a time
+  const invitedIdx = invited.day ? state.plan.days.findIndex((d) => d.iso === invited.day) : -1;
+  if (invitedIdx >= 0) {
+    state.plan.dayIdx = invitedIdx;
+    state.plan.invite = invited.slot;
+    if (invited.slot) state.plan.slot = invited.slot;
+  }
   fillSelect($("level"), LEVELS.map((l) => ({ slug: l, name: LEVEL_LABELS[l] })), state.level);
   renderAboutShort();
   $("more-sports").href = CONFIG.INTEREST_URL;

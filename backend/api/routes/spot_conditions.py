@@ -15,6 +15,7 @@ from services.forecast import (
 from services.nea import get_wind_speed, get_wind_direction, get_lightning
 from services.nea_forecast import get_24h_forecast, get_four_day_outlook
 from services.nea_tide import TideFeed
+from services.tide_forecast import add_tide_to_forecast
 from services.tide_payload import build_tide_block
 
 router = APIRouter()
@@ -107,9 +108,10 @@ async def spot_forecast(
     except repo.NotSupported as e:
         raise HTTPException(status_code=422, detail=str(e))
 
-    (four_raw, four_info), (h24_raw, h24_info) = await asyncio.gather(
+    (four_raw, four_info), (h24_raw, h24_info), (tide_table, tide_info) = await asyncio.gather(
         forecast_cache.get("four-day-outlook", get_four_day_outlook),
         forecast_cache.get("twenty-four-hr-forecast", get_24h_forecast),
+        tide_feed.get(),
     )
     four = parse_four_day(four_raw) if four_raw else None
     h24 = parse_24h(h24_raw) if h24_raw else None
@@ -127,7 +129,12 @@ async def spot_forecast(
         error = info["error"] or (None if ok else "response shape not recognised")
         log_entries.append({"source": "nea", "feed": feed, "ok": ok, "error": error,
                             "duration_ms": info["duration_ms"]})
+    if not tide_info["cached"]:
+        log_entries.append({"source": "nea", "feed": "tide-timings", "ok": tide_info["ok"], "error": tide_info["error"],
+                            "duration_ms": tide_info["duration_ms"]})
     background.add_task(repo.log_fetches, log_entries)
 
     spot = {"slug": ctx.slug, "name": ctx.name, "lat": ctx.lat, "lng": ctx.lng}
-    return build_forecast_payload(spot, ctx.activity_slug, level, days, available=bool(four or h24))
+    payload = build_forecast_payload(spot, ctx.activity_slug, level, days, available=bool(four or h24))
+    add_tide_to_forecast(payload, tide_table)    # AM and PM tide for each day, from the same table as the tide card
+    return payload

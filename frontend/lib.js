@@ -447,3 +447,87 @@ export function buildForecastView(payload, day, slotKeys) {
     stale: !!f.stale,
   };
 }
+
+// ---------- the AM / PM cards ----------
+// The two periods match NEA's own forecast periods. Their hours are labels, and the tide word is worked out for exactly these hours.
+export const PLAN_PERIODS = [
+  { key: "am", slot: "AM", label: "AM", sub: "morning", hours: "6am \u2013 12pm" },
+  { key: "pm", slot: "PM", label: "PM", sub: "afternoon", hours: "12pm \u2013 6pm" },
+];
+
+const DIR_DEG = {
+  N: 0, NNE: 22.5, NE: 45, ENE: 67.5, E: 90, ESE: 112.5, SE: 135, SSE: 157.5,
+  S: 180, SSW: 202.5, SW: 225, WSW: 247.5, W: 270, WNW: 292.5, NW: 315, NNW: 337.5,
+};
+const DIR_WORDS = { north: "N", northeast: "NE", east: "E", southeast: "SE", south: "S", southwest: "SW", west: "W", northwest: "NW" };
+
+// The compass direction the wind comes FROM, in degrees, or null if it is not recognised.
+export function windDirectionDeg(dir) {
+  if (typeof dir !== "string") return null;
+  const t = dir.trim();
+  const code = Object.prototype.hasOwnProperty.call(DIR_DEG, t.toUpperCase()) ? t.toUpperCase()
+    : (Object.prototype.hasOwnProperty.call(DIR_WORDS, t.toLowerCase()) ? DIR_WORDS[t.toLowerCase()] : null);
+  return code ? DIR_DEG[code] : null;
+}
+
+// "Partly Cloudy (Day)" -> "Partly cloudy". Null if there is nothing to show.
+export function weatherTitle(text) {
+  if (typeof text !== "string") return null;
+  const t = text.replace(/\([^)]*\)/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+  return t ? t[0].toUpperCase() + t.slice(1) : null;
+}
+
+// Which small picture to draw for a forecast text.
+export function weatherIcon(text) {
+  const t = typeof text === "string" ? text.toLowerCase() : "";
+  if (/thunder|lightning/.test(t)) return "thunder";
+  if (/shower|rain|drizzle/.test(t)) return "rain";
+  if (/partly|intervals/.test(t)) return "partly";
+  if (/fair|sunny|clear/.test(t)) return "sun";
+  if (/cloud|overcast|haze|hazy|mist|fog/.test(t)) return "cloud";
+  return "none";
+}
+
+const validHourly = (rows) => Array.isArray(rows) && rows.length > 0 && rows.every((r) =>
+  r && typeof r.time === "string" && /^\d{2}:00$/.test(r.time) && Number.isFinite(r.height_m) && (r.state === "rising" || r.state === "falling"));
+const validExtremes = (xs) => Array.isArray(xs) && xs.every((e) =>
+  e && (e.kind === "high" || e.kind === "low") && typeof e.time === "string" && /^\d{2}:\d{2}$/.test(e.time) && Number.isFinite(e.height_m));
+
+// Everything the AM / PM cards show for one day, from the /forecast response. Fails closed: whatever is missing is null,
+// and the card says "Not available" for it. It builds on buildForecastView, so the thunder note and the guidance wording stay the same.
+export function planDayView(payload, day) {
+  const base = buildForecastView(payload, day, ["AM", "PM"]);
+  if (base.state !== "ok") return { state: "none", message: base.message };
+  const f = (payload.days || []).find((d) => d.date === day.iso);
+  const w = f.wind;
+  const low = Number(w?.knots_low), high = Number(w?.knots_high);
+  const wind = w && Number.isFinite(low) && Number.isFinite(high)
+    ? {
+      range: low === high ? `${kn(low)} kn` : `${kn(low)} to ${kn(high)} kn`,
+      direction: typeof w.direction === "string" && w.direction.trim() ? w.direction.trim() : null,
+      deg: windDirectionDeg(w.direction),
+    }
+    : null;
+  const periods = PLAN_PERIODS.map((p) => {
+    const text = f.slots?.[p.slot]?.text ?? null;
+    return {
+      key: p.key, label: p.label, sub: p.sub, hours: p.hours,
+      title: weatherTitle(text), icon: weatherIcon(text), thundery: !!f.slots?.[p.slot]?.thundery,
+      scope: f.slots?.[p.slot]?.source === "daily" ? "day" : null,   // the text is for the whole day, not for this period
+      tide: typeof f.tide?.[p.key] === "string" && f.tide[p.key] ? f.tide[p.key] : null,
+    };
+  });
+  const t = f.tide && typeof f.tide === "object" ? f.tide : null;
+  return {
+    state: "ok",
+    thunderNotice: base.thunderNotice,
+    wind,
+    periods,
+    assessment: base.headline || base.pill ? { headline: base.headline, pill: base.pill } : null,
+    summary: base.summary,
+    small: base.small,
+    stale: base.stale,
+    tide: t ? { hourly: validHourly(t.hourly) ? t.hourly : null, extremes: validExtremes(t.extremes) ? t.extremes : [] } : null,
+    tideNote: typeof payload.tide_note === "string" ? payload.tide_note : null,
+  };
+}
