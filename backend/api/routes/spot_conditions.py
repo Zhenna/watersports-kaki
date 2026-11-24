@@ -1,6 +1,7 @@
 import asyncio
+import time
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Response
 from starlette.concurrency import run_in_threadpool
 
 from services import conditions_repo as repo
@@ -30,6 +31,7 @@ tide_feed = TideFeed()                        # NEA lists whole months, so twice
 async def spot_conditions(
     slug: str,
     background: BackgroundTasks,
+    response: Response,
     activity: str = Query(..., min_length=1, max_length=30),
     level: str = Query("beginner"),
 ):
@@ -38,12 +40,16 @@ async def spot_conditions(
     preview = repo.preview_mode()
     provisional = repo.provisional_guidance()
 
+    # Timing only: the three stages are reported in the Server-Timing response header
+    # (ctx = database context, feeds = NEA and tide fetches, build = assembling the payload).
+    t0 = time.perf_counter()
     try:
         ctx = await run_in_threadpool(repo.load_context, slug, activity, level, preview, provisional)
     except repo.NotFound as e:
         raise HTTPException(status_code=404, detail=str(e))
     except repo.NotSupported as e:
         raise HTTPException(status_code=422, detail=str(e))
+    t1 = time.perf_counter()
 
     (wind, wind_info), (direction, dir_info), (lightning, li_info), (tide_table, tide_info) = await asyncio.gather(
         cache.get("wind", get_wind_speed),
@@ -51,6 +57,7 @@ async def spot_conditions(
         cache.get("lightning", get_lightning),
         tide_feed.get(),
     )
+    t2 = time.perf_counter()
 
     obs, meta = build_observation(
         wind, direction, lightning, ctx.lat, ctx.lng,
@@ -85,6 +92,13 @@ async def spot_conditions(
         block = shore_direction(obs.wind_from_deg, others, ctx.sectors, ctx.sectors_reviewed)
         if block:
             payload["guidance"]["direction"] = block   # same gate as the sectors it comes from
+
+    t3 = time.perf_counter()
+    response.headers["Server-Timing"] = (
+        f"ctx;dur={(t1 - t0) * 1000:.0f}, "
+        f"feeds;dur={(t2 - t1) * 1000:.0f}, "
+        f"build;dur={(t3 - t2) * 1000:.0f}"
+    )
     return payload
 
 
